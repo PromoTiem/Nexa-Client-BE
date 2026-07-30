@@ -1,0 +1,54 @@
+# Application
+app_name: Nexa-Client-BE
+app_env: development
+app_debug: true
+app_host: "0.0.0.0"
+app_port: 8002
+
+# PocketBase (IDP)
+pocketbase_url: ""
+pocketbase_auth_collection: "users"
+pocketbase_timeout: 10.0
+pocketbase_max_retries: 3
+pocketbase_retry_backoff: 0.5
+
+# CORS
+allowed_origins: "http://localhost:3000"
+
+# Build
+builders_repo_url: "https://github.com/PromoTiem/Nexa-Builders"
+github_token: ""
+
+# Site deployment
+site_base_domain: "promotiem.dpdns.org"
+
+# Telegram
+telegram_bot_token: ""
+telegram_chat_id: ""
+telegram_thread_id: ""
+telegram_enabled: false
+
+# Cloudflare
+cloudflare_api_token: ""
+cloudflare_account_id: ""
+cloudflare_zone_id: ""
+cloudflare_timeout: 30.0
+cloudflare_max_retries: 3
+cloudflare_retry_backoff: 1.0
+
+# Logging
+logging:
+  level: INFO
+  loki_enabled: false
+  loki_url: "http://localhost:3100/loki/api/v1/push"
+  loki_labels: {}
+
+# Storage (RustFS / S3)
+storage:
+  endpoint_url: "http://localhost:9000"
+  public_endpoint_url: "http://localhost:9000"
+  access_key: ""
+  secret_key: ""
+  region: "us-east-1"
+  presign_expiry_seconds: 900
+  max_file_bytes: 10485760
