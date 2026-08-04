@@ -243,7 +243,7 @@ def _validate_json_value(field: dict, errors: List[str]) -> None:
         except _json.JSONDecodeError:
             errors.append(f"Field '{field['key']}': invalid JSON string")
             return
-    schema = field.get("schema")
+    schema = field.get("schema") or field.get("schema_")
     if schema and isinstance(value, dict):
         for req_key in schema.get("required", []):
             if req_key not in value:
