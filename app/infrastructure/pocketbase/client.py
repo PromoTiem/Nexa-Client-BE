@@ -203,6 +203,27 @@ class PocketBaseClient:
             not_found_detail=f"Collection '{collection}' not found",
         )
 
+    async def collection_list(
+        self,
+        collection: str,
+        token: Optional[str] = None,
+        filter_expr: Optional[str] = None,
+        sort: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 50,
+        expand: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Alias for list_records using filter_expr parameter name."""
+        return await self.list_records(
+            collection=collection,
+            token=token,
+            filter=filter_expr,
+            sort=sort,
+            page=page,
+            per_page=per_page,
+            expand=expand,
+        )
+
     async def find_one_by_filter(
         self,
         collection: str,
@@ -222,6 +243,29 @@ class PocketBaseClient:
         if not items:
             raise HTTPException(status_code=404, detail="Record not found")
         return items[0]
+
+    async def find_record_by_id(
+        self,
+        collection: str,
+        record_id: str,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        url = (
+            f"{self._base_url}/api/collections/{collection}"
+            f"/records/{record_id}"
+        )
+
+        async def _do_request() -> httpx.Response:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                return await client.get(
+                    url, headers=self._get_auth_headers(token)
+                )
+
+        response = await self._execute_with_retry(
+            self._make_retry("get_by_id", collection),
+            _do_request,
+        )
+        return self._handle_response(response, "get_by_id", collection)
 
     async def create_record(
         self,
