@@ -117,12 +117,12 @@ async def create_site(
 ) -> SiteResponse:
     validate_id(body.site_id, "site_id")
     tenant = auth_tenant(auth)
-    if tenant and body.tenant_id != tenant:
+    if not tenant:
         raise HTTPException(
-            status_code=403, detail="Cannot create site for another tenant"
+            status_code=403, detail="Client access requires tenant_id"
         )
     tenant_record_id = await public_id_to_record_id(
-        pb, "tenants", "tenant_id", body.tenant_id, auth.token
+        pb, "tenants", "tenant_id", tenant, auth.token
     )
     template_record_id = await public_id_to_record_id(
         pb, "templates", "template_id", body.template_id, auth.token
