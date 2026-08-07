@@ -12,6 +12,7 @@ class UserCreateRequest(BaseModel):
     email: str
     name: Optional[str] = None
     phone: Optional[str] = None
+    tenant_id: Optional[str] = None
     role: UserRole = "member"
     metadata: Optional[Dict[str, Any]] = None
 
