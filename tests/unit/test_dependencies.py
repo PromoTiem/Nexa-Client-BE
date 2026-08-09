@@ -13,7 +13,7 @@ MOCK_RECORD = {
     "role": "admin",
 }
 
-MOKE_AUTH_DATA = {
+MOCK_AUTH_DATA = {
     "token": "valid.token.here",
     "record": MOCK_RECORD,
 }
@@ -23,7 +23,7 @@ class TestGetAuthContext:
     @pytest.mark.asyncio
     async def test_valid_token_returns_auth_context(self):
         mock_pb = AsyncMock()
-        mock_pb.auth_refresh = AsyncMock(return_value=MOKE_AUTH_DATA)
+        mock_pb.auth_refresh = AsyncMock(return_value=MOCK_AUTH_DATA)
 
         mock_credentials = type(
             "Creds", (), {"credentials": "valid.token.here"}

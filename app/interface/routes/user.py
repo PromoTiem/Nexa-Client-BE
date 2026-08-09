@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
-from app.interface.dependencies import AuthContext, get_auth_context, get_pocketbase_client
+from app.interface.dependencies import (
+    AuthContext, SuperAdminContext, get_admin_context, get_auth_context,
+    get_optional_admin_context, get_optional_auth_context,
+    get_pocketbase_client, get_static_pb_client,
+)
 from app.interface.dto.user import (
     UserCreateRequest,
     UserCreateResponse,
@@ -132,15 +136,39 @@ async def list_users(
 @router.post("", response_model=UserCreateResponse, status_code=201)
 async def create_user(
     body: UserCreateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: Optional[AuthContext] = Depends(get_optional_auth_context),
+    admin: Optional[SuperAdminContext] = Depends(get_optional_admin_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
+    static_pb: PocketBaseClient = Depends(get_static_pb_client),
 ) -> UserCreateResponse:
-    _require_admin_role(auth)
-    tenant = auth_tenant(auth)
+    if auth:
+        _require_admin_role(auth)
+        tenant = auth_tenant(auth)
+        pb_client = pb
+        token = auth.token
+        if body.tenant_id:
+            raise HTTPException(
+                status_code=400,
+                detail="tenant_id cannot be specified with user authentication",
+            )
+    elif admin:
+        if not body.tenant_id:
+            raise HTTPException(
+                status_code=400,
+                detail="tenant_id is required for superadmin user creation",
+            )
+        tenant = body.tenant_id
+        pb_client = static_pb
+        token = admin.token
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required: provide Bearer token or x_api_be_token header",
+        )
 
     temp_password = secrets.token_urlsafe(12)
 
-    record = await pb.create_record(
+    record = await pb_client.create_record(
         collection=COLLECTION,
         data={
             "email": body.email,
@@ -153,7 +181,7 @@ async def create_user(
             "status": "active",
             "metadata": body.metadata or {},
         },
-        token=auth.token,
+        token=token,
     )
 
     logger.info(

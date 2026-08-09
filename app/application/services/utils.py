@@ -10,7 +10,6 @@ from app.infrastructure.logging import get_logger
 logger = get_logger("subprocess")
 
 SITES_COLLECTION = "sites"
-TEMPLATES_COLLECTION = "templates"
 
 
 def sanitize_name(name: str, max_length: Optional[int] = None) -> str:

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # PocketBase (IDP)
     pocketbase_url: str = "https://your-pocketbase-instance.example.com"
     pocketbase_auth_collection: str = "users"
+    pocketbase_api_token: str = ""
     pocketbase_timeout: float = 10.0
     pocketbase_max_retries: int = 3
     pocketbase_retry_backoff: float = 0.5
