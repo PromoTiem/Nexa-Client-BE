@@ -1,5 +1,5 @@
 import secrets
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -7,6 +7,7 @@ from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     AuthContext, SuperAdminContext, get_admin_context, get_auth_context,
+    get_optional_admin_context, get_optional_auth_context,
     get_pocketbase_client, get_static_pb_client,
 )
 from app.interface.dto.user import (
@@ -135,10 +136,10 @@ async def list_users(
 @router.post("", response_model=UserCreateResponse, status_code=201)
 async def create_user(
     body: UserCreateRequest,
-    auth: Optional[AuthContext] = Depends(get_auth_context),
-    admin: Optional[SuperAdminContext] = Depends(get_admin_context),
-    pb: Optional[PocketBaseClient] = Depends(get_pocketbase_client),
-    static_pb: Optional[PocketBaseClient] = Depends(get_static_pb_client),
+    auth: Optional[AuthContext] = Depends(get_optional_auth_context),
+    admin: Optional[SuperAdminContext] = Depends(get_optional_admin_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    static_pb: PocketBaseClient = Depends(get_static_pb_client),
 ) -> UserCreateResponse:
     if auth:
         _require_admin_role(auth)

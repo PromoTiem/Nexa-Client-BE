@@ -359,7 +359,7 @@ class TestCreateUserSuperadmin:
         )
 
         result = await create_user(
-            body=body, auth=None, admin=MOCK_SUPERADMIN, pb=None, static_pb=static_pb
+            body=body, auth=None, admin=MOCK_SUPERADMIN, pb=AsyncMock(), static_pb=static_pb
         )
 
         assert result.user.email == "sa@example.com"
@@ -374,7 +374,7 @@ class TestCreateUserSuperadmin:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_user(
-                body=body, auth=None, admin=MOCK_SUPERADMIN, pb=None, static_pb=None
+                body=body, auth=None, admin=MOCK_SUPERADMIN, pb=AsyncMock(), static_pb=AsyncMock()
             )
         assert exc_info.value.status_code == 400
         assert "tenant_id is required" in str(exc_info.value.detail)
@@ -399,5 +399,5 @@ class TestCreateUserSuperadmin:
         body = UserCreateRequest(email="new@example.com")
 
         with pytest.raises(HTTPException) as exc_info:
-            await create_user(body=body, auth=None, admin=None, pb=None, static_pb=None)
+            await create_user(body=body, auth=None, admin=None, pb=AsyncMock(), static_pb=AsyncMock())
         assert exc_info.value.status_code == 401
