@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from app.interface.dto.common import PaginatedResponse
 
 UserRole = Literal["owner", "admin", "member", "guest"]
-UserStatus = Literal["active", "inactive", "suspended"]
+UserStatus = Literal["active", "inactive", "pending"]
 
 
 class UserCreateRequest(BaseModel):
