@@ -8,6 +8,9 @@ app_port: 8002
 # PocketBase (IDP)
 pocketbase_url: ""
 pocketbase_auth_collection: "users"
+pocketbase_api_token: ""  # PocketBase superuser API token for bootstrap user creation
+pocketbase_admin_email: ""  # PocketBase superuser email for migrations
+pocketbase_admin_password: ""  # PocketBase superuser password for migrations
 pocketbase_timeout: 10.0
 pocketbase_max_retries: 3
 pocketbase_retry_backoff: 0.5

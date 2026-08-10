@@ -9,7 +9,6 @@ SiteStatus = Literal["draft", "building", "live", "error"]
 
 class SiteCreateRequest(BaseModel):
     site_id: str
-    tenant_id: str
     template_id: str
     domain: str
     config: Optional[Dict[str, Any]] = None
