@@ -41,6 +41,7 @@ class UserResponse(BaseModel):
     tenant_id: str
     role: UserRole
     status: UserStatus
+    is_superuser: bool = False
     last_login: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     created: str

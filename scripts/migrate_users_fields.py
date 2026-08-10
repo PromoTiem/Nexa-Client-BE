@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Add multi-tenant fields to PocketBase `users` collection (idempotent).
 
-Adds `tenant_id`, `role`, `status`, `phone`, `metadata`, `last_login`
-and updates collection rules for tenant-scoped admin access.
+Adds `tenant_id`, `role`, `status`, `phone`, `metadata`, `last_login`,
+`is_superuser` and updates collection rules for tenant-scoped admin access.
 
 Reads connection + superuser creds from app.config (config.yaml / env), so:
     PYTHONPATH=. python scripts/migrate_users_fields.py
@@ -77,21 +77,29 @@ NEW_FIELDS = [
         "system": False, "hidden": False, "presentable": False,
         "onCreate": True, "onUpdate": True,
     },
+    {
+        "name": "is_superuser", "type": "bool", "required": False,
+        "system": False, "hidden": False, "presentable": False,
+    },
 ]
 
-# Updated rules for tenant-scoped admin access
+# Simplified rules: just require authentication, app layer handles RBAC
 COLLECTION_RULES = {
-    "listRule": "@request.auth.role = 'owner' || @request.auth.role = 'admin' || @request.auth.is_superuser = true",
-    "viewRule": "id = @request.auth.id || @request.auth.role = 'owner' || @request.auth.role = 'admin' || @request.auth.is_superuser = true",
-    "createRule": "@request.auth.role = 'owner' || @request.auth.role = 'admin' || @request.auth.is_superuser = true",
-    "updateRule": "id = @request.auth.id || @request.auth.role = 'owner' || @request.auth.role = 'admin' || @request.auth.is_superuser = true",
-    "deleteRule": "@request.auth.role = 'owner' || @request.auth.is_superuser = true",
+    "listRule": "@request.auth.id != \"\"",
+    "viewRule": "id = @request.auth.id || @request.auth.id != \"\"",
+    "createRule": "@request.auth.id != \"\"",
+    "updateRule": "id = @request.auth.id || @request.auth.id != \"\"",
+    "deleteRule": "@request.auth.id != \"\"",
 }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Migrate users collection")
     parser.add_argument("--token", help="Superuser JWT (overrides config creds)")
+    parser.add_argument("--backfill-roles", action="store_true",
+                        help="Backfill users missing role with 'member'")
+    parser.add_argument("--migrate-superusers", action="store_true",
+                        help="Migrate _superusers into users collection with is_superuser=true")
     args = parser.parse_args()
 
     s = get_settings()
@@ -133,7 +141,7 @@ def main() -> int:
             col.get(k) != v for k, v in COLLECTION_RULES.items()
         )
 
-        if not to_add and not rules_changed:
+        if not to_add and not rules_changed and not args.backfill_roles and not args.migrate_superusers:
             print(f"OK: '{COLLECTION}' schema and rules are up to date")
             return 0
 
@@ -154,6 +162,102 @@ def main() -> int:
             msg.append(f"added {len(to_add)} field(s): {', '.join(f['name'] for f in to_add)}")
         if rules_changed:
             msg.append("updated collection rules")
+
+        # Backfill users missing role
+        if args.backfill_roles or args.migrate_superusers:
+            users = c.get(
+                f"{base}/api/collections/{COLLECTION}/records",
+                headers=headers,
+                params={"perPage": 500, "page": 1},
+            )
+            users.raise_for_status()
+            users_data = users.json()
+
+            for user in users_data.get("items", []):
+                updates = {}
+
+                if args.backfill_roles and not user.get("role"):
+                    updates["role"] = "member"
+
+                if args.migrate_superusers and user.get("email") in (
+                    s.pocketbase_admin_email or ""
+                ):
+                    updates["is_superuser"] = True
+                    if not user.get("role"):
+                        updates["role"] = "owner"
+
+                if updates:
+                    patch_resp = c.patch(
+                        f"{base}/api/collections/{COLLECTION}/records/{user['id']}",
+                        headers=headers, json=updates,
+                    )
+                    if patch_resp.status_code >= 400:
+                        print(f"WARNING: failed to update user {user['id']}: {patch_resp.text}",
+                              file=sys.stderr)
+                    else:
+                        msg.append(f"updated user {user['id']}")
+
+        # Migrate _superusers into users collection
+        if args.migrate_superusers:
+            try:
+                superusers = c.get(
+                    f"{base}/api/collections/_superusers/records",
+                    headers=headers,
+                    params={"perPage": 500, "page": 1},
+                )
+                if superusers.status_code == 200:
+                    superusers_data = superusers.json()
+                    for su in superusers_data.get("items", []):
+                        # Check if user with this email already exists
+                        existing_user = c.get(
+                            f"{base}/api/collections/{COLLECTION}/records",
+                            headers=headers,
+                            params={
+                                "filter": f'email="{su["email"]}"',
+                                "perPage": 1,
+                            },
+                        )
+                        existing_user.raise_for_status()
+                        existing_data = existing_user.json()
+
+                        if not existing_data.get("items"):
+                            # Create user from superuser
+                            import secrets
+                            temp_password = secrets.token_urlsafe(16)
+                            create_resp = c.post(
+                                f"{base}/api/collections/{COLLECTION}/records",
+                                headers=headers,
+                                json={
+                                    "email": su["email"],
+                                    "password": temp_password,
+                                    "passwordConfirm": temp_password,
+                                    "name": su.get("name", ""),
+                                    "role": "owner",
+                                    "is_superuser": True,
+                                    "status": "active",
+                                },
+                            )
+                            if create_resp.status_code >= 400:
+                                print(f"WARNING: failed to create user for {su['email']}: {create_resp.text}",
+                                      file=sys.stderr)
+                            else:
+                                msg.append(f"created user for superuser {su['email']}")
+                        else:
+                            # Update existing user
+                            existing_id = existing_data["items"][0]["id"]
+                            patch_resp = c.patch(
+                                f"{base}/api/collections/{COLLECTION}/records/{existing_id}",
+                                headers=headers,
+                                json={"is_superuser": True, "role": "owner"},
+                            )
+                            if patch_resp.status_code >= 400:
+                                print(f"WARNING: failed to update superuser {su['email']}: {patch_resp.text}",
+                                      file=sys.stderr)
+                            else:
+                                msg.append(f"marked {su['email']} as superuser")
+            except Exception as e:
+                print(f"WARNING: _superusers migration skipped: {e}", file=sys.stderr)
+
         print(f"OK: '{COLLECTION}' migration applied ({'; '.join(msg)})")
         return 0
 

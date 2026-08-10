@@ -25,6 +25,7 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_storage_client,
 )
+from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     auth_tenant,
     ensure_tenant_owns,
@@ -78,6 +79,7 @@ async def list_sites(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteListResponse:
+    enforce_permission(auth, Permission.SITES_LIST)
     # Tenant-scoped tokens are always filtered to their own tenant; any
     # incompatible query value is overridden.
     effective_tenant = auth_tenant(auth) or tenant_id
@@ -115,6 +117,7 @@ async def create_site(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> SiteResponse:
+    enforce_permission(auth, Permission.SITES_CREATE)
     validate_id(body.site_id, "site_id")
     tenant = auth_tenant(auth)
     if not tenant:
@@ -163,6 +166,7 @@ async def get_site(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteResponse:
+    enforce_permission(auth, Permission.SITES_LIST)
     validate_id(site_id, "site_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
@@ -181,6 +185,7 @@ async def update_site(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteResponse:
+    enforce_permission(auth, Permission.SITES_UPDATE)
     validate_id(site_id, "site_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
@@ -251,6 +256,7 @@ async def delete_site(
     cf: CloudflareClient = Depends(get_cloudflare_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> Response:
+    enforce_permission(auth, Permission.SITES_DELETE)
     validate_id(site_id, "site_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
