@@ -1,10 +1,10 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
-from app.interface.dependencies import SuperAdminContext
-from app.interface.rbac import require_permission, Permission, has_permission
+from app.interface.dependencies import SuperAdminContext, TenantContext
+from app.interface.rbac import Permission, has_permission
 from app.interface.routes.user import (
     _record_to_response,
     get_my_profile,
@@ -63,6 +63,10 @@ MOCK_USER_RECORD = {
 }
 
 
+def _tenant_ctx(auth: AuthContext) -> TenantContext:
+    return TenantContext(auth=auth, tenant_id=auth.record.get("tenant_id"))
+
+
 class TestRequireAdminRole:
     def test_admin_has_users_permission(self):
         assert has_permission(MOCK_ADMIN_AUTH, Permission.USERS_LIST)
@@ -99,7 +103,7 @@ class TestGetMyProfile:
         pb = AsyncMock()
         pb.find_record_by_id = AsyncMock(return_value=MOCK_USER_RECORD)
 
-        result = await get_my_profile(auth=MOCK_ADMIN_AUTH, pb=pb)
+        result = await get_my_profile(ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 
         assert result.id == "user_123"
         assert result.email == "test@example.com"
@@ -120,7 +124,7 @@ class TestUpdateMyProfile:
         from app.interface.dto.user import UserProfileUpdateRequest
         body = UserProfileUpdateRequest(name="Updated Name")
 
-        result = await update_my_profile(body=body, auth=MOCK_ADMIN_AUTH, pb=pb)
+        result = await update_my_profile(body=body, ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 
         assert result.name == "Updated Name"
         pb.update_record.assert_called_once()
@@ -133,7 +137,7 @@ class TestUpdateMyProfile:
         from app.interface.dto.user import UserProfileUpdateRequest
         body = UserProfileUpdateRequest()
 
-        result = await update_my_profile(body=body, auth=MOCK_ADMIN_AUTH, pb=pb)
+        result = await update_my_profile(body=body, ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 
         assert result.id == "user_123"
         pb.find_record_by_id.assert_called_once()
@@ -154,7 +158,7 @@ class TestListUsers:
             }
         )
 
-        result = await list_users(auth=MOCK_ADMIN_AUTH, pb=pb)
+        result = await list_users(ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 
         assert result.total == 1
         assert len(result.items) == 1
@@ -164,7 +168,7 @@ class TestListUsers:
         pb = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
-            await list_users(auth=MOCK_MEMBER_AUTH, pb=pb)
+            await list_users(ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb)
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -180,10 +184,9 @@ class TestListUsers:
             }
         )
 
-        from fastapi import Query
         result = await list_users(
             status="active",
-            auth=MOCK_ADMIN_AUTH,
+            ctx=_tenant_ctx(MOCK_ADMIN_AUTH),
             pb=pb,
         )
 
@@ -230,7 +233,7 @@ class TestGetUser:
         pb = AsyncMock()
         pb.find_record_by_id = AsyncMock(return_value=MOCK_USER_RECORD)
 
-        result = await get_user(user_id="user_123", auth=MOCK_ADMIN_AUTH, pb=pb)
+        result = await get_user(user_id="user_123", ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 
         assert result.id == "user_123"
 
@@ -239,7 +242,7 @@ class TestGetUser:
         pb = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_user(user_id="user_123", auth=MOCK_MEMBER_AUTH, pb=pb)
+            await get_user(user_id="user_123", ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb)
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -249,7 +252,7 @@ class TestGetUser:
         pb.find_record_by_id = AsyncMock(return_value=other_tenant_user)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_user(user_id="user_123", auth=MOCK_ADMIN_AUTH, pb=pb)
+            await get_user(user_id="user_123", ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
         assert exc_info.value.status_code == 404
 
 
@@ -265,7 +268,7 @@ class TestUpdateUser:
         body = UserUpdateRequest(name="Updated")
 
         result = await update_user(
-            user_id="user_123", body=body, auth=MOCK_ADMIN_AUTH, pb=pb
+            user_id="user_123", body=body, ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb
         )
 
         assert result.name == "Updated"
@@ -279,7 +282,7 @@ class TestUpdateUser:
 
         with pytest.raises(HTTPException) as exc_info:
             await update_user(
-                user_id="user_123", body=body, auth=MOCK_MEMBER_AUTH, pb=pb
+                user_id="user_123", body=body, ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb
             )
         assert exc_info.value.status_code == 403
 
@@ -294,7 +297,7 @@ class TestUpdateUser:
 
         with pytest.raises(HTTPException) as exc_info:
             await update_user(
-                user_id="user_123", body=body, auth=MOCK_ADMIN_AUTH, pb=pb
+                user_id="user_123", body=body, ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb
             )
         assert exc_info.value.status_code == 404
 
@@ -307,7 +310,7 @@ class TestDeleteUser:
         pb.update_record = AsyncMock(return_value={})
 
         result = await delete_user(
-            user_id="user_123", auth=MOCK_ADMIN_AUTH, pb=pb
+            user_id="user_123", ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb
         )
 
         assert result.status_code == 204
@@ -319,7 +322,7 @@ class TestDeleteUser:
         pb = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
-            await delete_user(user_id="user_123", auth=MOCK_MEMBER_AUTH, pb=pb)
+            await delete_user(user_id="user_123", ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb)
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -329,7 +332,7 @@ class TestDeleteUser:
         pb.find_record_by_id = AsyncMock(return_value=other_tenant_user)
 
         with pytest.raises(HTTPException) as exc_info:
-            await delete_user(user_id="user_123", auth=MOCK_ADMIN_AUTH, pb=pb)
+            await delete_user(user_id="user_123", ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
         assert exc_info.value.status_code == 404
 
 
