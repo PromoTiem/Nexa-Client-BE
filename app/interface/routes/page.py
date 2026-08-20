@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends, Query
 
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
-from app.interface.dependencies import AuthContext, get_auth_context, get_pocketbase_client
+from app.interface.dependencies import (
+    TenantContext,
+    get_pocketbase_client,
+    get_tenant_context,
+)
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import validate_id
 from app.interface.dto.page import PageResponse, PageListResponse
@@ -38,13 +42,13 @@ async def list_pages(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PageListResponse:
-    enforce_permission(auth, Permission.PAGES_LIST)
+    enforce_permission(ctx.auth, Permission.PAGES_LIST)
     result = await pb.list_records(
         collection=COLLECTION,
-        token=auth.token,
+        token=ctx.token,
         sort=sort,
         page=page,
         per_page=per_page,
@@ -62,14 +66,14 @@ async def list_pages(
 @router.get("/{page_id}", response_model=PageResponse)
 async def get_page(
     page_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PageResponse:
-    enforce_permission(auth, Permission.PAGES_LIST)
+    enforce_permission(ctx.auth, Permission.PAGES_LIST)
     validate_id(page_id, "page_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'page_id="{page_id}"',
-        token=auth.token,
+        token=ctx.token,
     )
     return _record_to_response(record)

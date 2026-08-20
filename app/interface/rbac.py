@@ -4,7 +4,7 @@ from typing import Dict, FrozenSet, Set
 
 from fastapi import Depends, HTTPException
 
-from app.interface.dependencies import AuthContext
+from app.interface.auth_models import AuthContext
 
 
 class UserRole(str, Enum):

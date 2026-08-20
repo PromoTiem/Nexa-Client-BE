@@ -2,7 +2,8 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
-from app.interface.dependencies import AuthContext, SuperAdminContext
+from app.interface.auth_models import AuthContext
+from app.interface.dependencies import SuperAdminContext
 from app.interface.rbac import require_permission, Permission, has_permission
 from app.interface.routes.user import (
     _record_to_response,

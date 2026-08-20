@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends, Query
 
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
-from app.interface.dependencies import AuthContext, get_auth_context, get_pocketbase_client
+from app.interface.dependencies import (
+    TenantContext,
+    get_pocketbase_client,
+    get_tenant_context,
+)
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import validate_id
 from app.interface.dto.style import StyleResponse, StyleListResponse
@@ -22,7 +26,7 @@ def _record_to_response(record: Dict[str, Any]) -> StyleResponse:
         name=record.get("name", ""),
         description=record.get("description") or None,
         config=record.get("config") or None,
-        tailwindCss=record.get("tailwindCss") or None,
+        tailwind_css=record.get("tailwindCss") or None,
         created_at=record.get("created_at"),
         updated_at=record.get("updated_at"),
         created_by=record.get("created_by"),
@@ -35,13 +39,13 @@ async def list_styles(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> StyleListResponse:
-    enforce_permission(auth, Permission.STYLES_LIST)
+    enforce_permission(ctx.auth, Permission.STYLES_LIST)
     result = await pb.list_records(
         collection=COLLECTION,
-        token=auth.token,
+        token=ctx.token,
         sort=sort,
         page=page,
         per_page=per_page,
@@ -59,14 +63,14 @@ async def list_styles(
 @router.get("/{style_id}", response_model=StyleResponse)
 async def get_style(
     style_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> StyleResponse:
-    enforce_permission(auth, Permission.STYLES_LIST)
+    enforce_permission(ctx.auth, Permission.STYLES_LIST)
     validate_id(style_id, "style_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'style_id="{style_id}"',
-        token=auth.token,
+        token=ctx.token,
     )
     return _record_to_response(record)
