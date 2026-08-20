@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import HTTPException
 
-from app.interface.dependencies import AuthContext
+from app.interface.auth_models import AuthContext
 from app.infrastructure.pocketbase.client import PocketBaseClient
 
 # ----- ID validation -------------------------------------------------- #

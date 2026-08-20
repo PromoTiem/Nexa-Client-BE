@@ -21,6 +21,7 @@ from app.interface.dto.storage import (
     UploadUrlRequest,
     UploadUrlResponse,
 )
+from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     ensure_file_tenant,
     ensure_site_tenant,
@@ -52,6 +53,7 @@ async def create_upload_url(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> UploadUrlResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(body.site_id, "site_id")
     if body.page_id is not None:
         validate_id(body.page_id, "page_id")
@@ -83,6 +85,7 @@ async def confirm_upload(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> StorageFileResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -102,6 +105,7 @@ async def list_storage(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> StorageListResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(site_id, "site_id")
     if page_id is not None:
         validate_id(page_id, "page_id")
@@ -126,6 +130,7 @@ async def get_storage(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> StorageFileResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -139,6 +144,7 @@ async def get_download_url(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> DownloadUrlResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -156,6 +162,7 @@ async def update_storage(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> StorageFileResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
     updates: Dict[str, Any] = {}
     if body.name is not None:
@@ -182,6 +189,7 @@ async def delete_storage(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> Response:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -196,6 +204,7 @@ async def bulk_delete_storage(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> BulkDeleteResponse:
+    enforce_permission(auth, Permission.STORAGE_ACCESS)
     results = await service.bulk_delete(
         body.file_ids, pb, auth.token, auth.record["id"], auth=auth
     )

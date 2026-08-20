@@ -9,7 +9,7 @@ from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.storage.client import StorageClient
 
 if TYPE_CHECKING:
-    from app.interface.dependencies import AuthContext
+    from app.interface.auth_models import AuthContext
 
 
 class SiteFileService:

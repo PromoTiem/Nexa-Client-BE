@@ -17,6 +17,7 @@ from app.interface.dto.property import (
     PropertyResponse,
     PropertyUpdateRequest,
 )
+from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import build_filter, ensure_site_tenant, validate_id
 
 COLLECTION = "properties"
@@ -68,6 +69,7 @@ async def create_property(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyResponse:
+    enforce_permission(auth, Permission.PROPERTIES_CREATE)
     validate_id(site_id, "site_id")
     validate_id(body.property_id, "property_id")
     await ensure_site_tenant(pb, site_id, auth)
@@ -119,6 +121,7 @@ async def list_properties(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyListResponse:
+    enforce_permission(auth, Permission.PROPERTIES_LIST)
     validate_id(site_id, "site_id")
     await ensure_site_tenant(pb, site_id, auth)
 
@@ -168,6 +171,7 @@ async def get_property(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyResponse:
+    enforce_permission(auth, Permission.PROPERTIES_LIST)
     validate_id(property_id, "property_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
@@ -193,6 +197,7 @@ async def update_property(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyResponse:
+    enforce_permission(auth, Permission.PROPERTIES_UPDATE)
     validate_id(property_id, "property_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
@@ -255,6 +260,7 @@ async def delete_property(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> Response:
+    enforce_permission(auth, Permission.PROPERTIES_DELETE)
     validate_id(property_id, "property_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,

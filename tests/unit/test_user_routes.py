@@ -2,9 +2,10 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
-from app.interface.dependencies import AuthContext, SuperAdminContext
+from app.interface.auth_models import AuthContext
+from app.interface.dependencies import SuperAdminContext
+from app.interface.rbac import require_permission, Permission, has_permission
 from app.interface.routes.user import (
-    _require_admin_role,
     _record_to_response,
     get_my_profile,
     update_my_profile,
@@ -63,17 +64,14 @@ MOCK_USER_RECORD = {
 
 
 class TestRequireAdminRole:
-    def test_admin_passes(self):
-        _require_admin_role(MOCK_ADMIN_AUTH)
+    def test_admin_has_users_permission(self):
+        assert has_permission(MOCK_ADMIN_AUTH, Permission.USERS_LIST)
 
-    def test_owner_passes(self):
-        _require_admin_role(MOCK_OWNER_AUTH)
+    def test_owner_has_users_permission(self):
+        assert has_permission(MOCK_OWNER_AUTH, Permission.USERS_LIST)
 
-    def test_member_raises_403(self):
-        with pytest.raises(HTTPException) as exc_info:
-            _require_admin_role(MOCK_MEMBER_AUTH)
-        assert exc_info.value.status_code == 403
-        assert "Admin role required" in str(exc_info.value.detail)
+    def test_member_lacks_users_permission(self):
+        assert not has_permission(MOCK_MEMBER_AUTH, Permission.USERS_LIST)
 
 
 class TestRecordToResponse:

@@ -18,18 +18,13 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
+from app.interface.rbac import Permission, enforce_permission, has_permission
 from app.interface.route_helpers import auth_tenant, build_filter, validate_id
 
 COLLECTION = "users"
 
 router = APIRouter()
 logger = get_logger("user_routes")
-
-
-def _require_admin_role(auth: AuthContext) -> None:
-    role = auth.record.get("role", "")
-    if role not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Admin role required")
 
 
 def _record_to_response(record: Dict[str, Any]) -> UserResponse:
@@ -42,6 +37,7 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         tenant_id=record.get("tenant_id", ""),
         role=record.get("role", "member"),
         status=record.get("status", "active"),
+        is_superuser=bool(record.get("is_superuser", False)),
         last_login=record.get("last_login", ""),
         metadata=record.get("metadata") or {},
         created=record.get("created", ""),
@@ -102,7 +98,7 @@ async def list_users(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserListResponse:
-    _require_admin_role(auth)
+    enforce_permission(auth, Permission.USERS_LIST)
     tenant = auth_tenant(auth)
 
     filter_parts = [f'tenant_id="{tenant}"']
@@ -142,7 +138,8 @@ async def create_user(
     static_pb: PocketBaseClient = Depends(get_static_pb_client),
 ) -> UserCreateResponse:
     if auth:
-        _require_admin_role(auth)
+        if not has_permission(auth, Permission.USERS_CREATE):
+            raise HTTPException(status_code=403, detail="Permission denied: users:create")
         tenant = auth_tenant(auth)
         pb_client = pb
         token = auth.token
@@ -201,7 +198,7 @@ async def get_user(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
-    _require_admin_role(auth)
+    enforce_permission(auth, Permission.USERS_LIST)
     validate_id(user_id, "user_id")
 
     record = await pb.find_record_by_id(
@@ -223,7 +220,7 @@ async def update_user(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
-    _require_admin_role(auth)
+    enforce_permission(auth, Permission.USERS_UPDATE)
     validate_id(user_id, "user_id")
 
     update_data = body.model_dump(exclude_unset=True)
@@ -260,7 +257,7 @@ async def delete_user(
     auth: AuthContext = Depends(get_auth_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> Response:
-    _require_admin_role(auth)
+    enforce_permission(auth, Permission.USERS_DELETE)
     validate_id(user_id, "user_id")
 
     record = await pb.find_record_by_id(

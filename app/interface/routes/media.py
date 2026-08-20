@@ -21,6 +21,7 @@ from app.interface.dto.media import (
     UploadUrlRequest,
     UploadUrlResponse,
 )
+from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     ensure_file_tenant,
     ensure_site_tenant,
@@ -54,6 +55,7 @@ async def create_upload_url(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> UploadUrlResponse:
+    enforce_permission(auth, Permission.MEDIA_UPLOAD)
     validate_id(body.site_id, "site_id")
     if body.page_id is not None:
         validate_id(body.page_id, "page_id")
@@ -89,6 +91,7 @@ async def confirm_upload(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> MediaResponse:
+    enforce_permission(auth, Permission.MEDIA_UPLOAD)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -108,6 +111,7 @@ async def list_media(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> MediaListResponse:
+    enforce_permission(auth, Permission.MEDIA_LIST)
     validate_id(site_id, "site_id")
     if page_id is not None:
         validate_id(page_id, "page_id")
@@ -132,6 +136,7 @@ async def get_media(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> MediaResponse:
+    enforce_permission(auth, Permission.MEDIA_LIST)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -145,6 +150,7 @@ async def get_download_url(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> DownloadUrlResponse:
+    enforce_permission(auth, Permission.MEDIA_LIST)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -164,6 +170,7 @@ async def update_media(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> MediaResponse:
+    enforce_permission(auth, Permission.MEDIA_UPLOAD)
     validate_id(file_id, "file_id")
     updates: Dict[str, Any] = {}
     if body.name is not None:
@@ -195,6 +202,7 @@ async def delete_media(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> Response:
+    enforce_permission(auth, Permission.MEDIA_DELETE)
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, auth.token)
     await ensure_file_tenant(pb, record, auth)
@@ -209,6 +217,7 @@ async def bulk_delete_media(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: MediaService = Depends(get_media_service),
 ) -> BulkDeleteResponse:
+    enforce_permission(auth, Permission.MEDIA_DELETE)
     results = await service.bulk_delete(body.file_ids, pb, auth.token, auth.record["id"], auth=auth)
     return BulkDeleteResponse(
         results=[ItemResult(**r) for r in results]
