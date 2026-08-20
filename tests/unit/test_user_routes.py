@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
 from app.interface.dependencies import SuperAdminContext, TenantContext
-from app.interface.rbac import Permission, has_permission
+from app.interface.rbac import require_permission, Permission, has_permission
 from app.interface.routes.user import (
     _record_to_response,
     get_my_profile,

@@ -30,6 +30,12 @@ class Permission(str, Enum):
     USERS_UPDATE = "users:update"
     USERS_DELETE = "users:delete"
 
+    TEMPLATES_LIST = "templates:list"
+    STYLES_LIST = "styles:list"
+    BLOCKS_LIST = "blocks:list"
+    PAGES_LIST = "pages:list"
+    SECTIONS_LIST = "sections:list"
+
     MEDIA_UPLOAD = "media:upload"
     MEDIA_LIST = "media:list"
     MEDIA_DELETE = "media:delete"
@@ -47,6 +53,11 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.PROPERTIES_CREATE,
         Permission.PROPERTIES_UPDATE,
         Permission.PROPERTIES_DELETE,
+        Permission.TEMPLATES_LIST,
+        Permission.STYLES_LIST,
+        Permission.BLOCKS_LIST,
+        Permission.PAGES_LIST,
+        Permission.SECTIONS_LIST,
         Permission.USERS_LIST,
         Permission.USERS_CREATE,
         Permission.USERS_UPDATE,
@@ -65,6 +76,11 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.PROPERTIES_CREATE,
         Permission.PROPERTIES_UPDATE,
         Permission.PROPERTIES_DELETE,
+        Permission.TEMPLATES_LIST,
+        Permission.STYLES_LIST,
+        Permission.BLOCKS_LIST,
+        Permission.PAGES_LIST,
+        Permission.SECTIONS_LIST,
         Permission.USERS_LIST,
         Permission.USERS_CREATE,
         Permission.USERS_UPDATE,
@@ -81,6 +97,11 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.PROPERTIES_LIST,
         Permission.PROPERTIES_CREATE,
         Permission.PROPERTIES_UPDATE,
+        Permission.TEMPLATES_LIST,
+        Permission.STYLES_LIST,
+        Permission.BLOCKS_LIST,
+        Permission.PAGES_LIST,
+        Permission.SECTIONS_LIST,
         Permission.MEDIA_UPLOAD,
         Permission.MEDIA_LIST,
         Permission.STORAGE_ACCESS,
@@ -88,6 +109,11 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
     UserRole.GUEST: frozenset({
         Permission.SITES_LIST,
         Permission.PROPERTIES_LIST,
+        Permission.TEMPLATES_LIST,
+        Permission.STYLES_LIST,
+        Permission.BLOCKS_LIST,
+        Permission.PAGES_LIST,
+        Permission.SECTIONS_LIST,
         Permission.MEDIA_LIST,
     }),
 }

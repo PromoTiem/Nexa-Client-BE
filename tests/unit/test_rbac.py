@@ -191,5 +191,14 @@ class TestPermissionMatrix:
     def test_guest_cannot_write(self):
         guest_perms = ROLE_PERMISSIONS[UserRole.GUEST]
         for perm in Permission:
-            if perm not in (Permission.SITES_LIST, Permission.PROPERTIES_LIST, Permission.MEDIA_LIST):
+            if perm not in (
+                Permission.SITES_LIST,
+                Permission.PROPERTIES_LIST,
+                Permission.MEDIA_LIST,
+                Permission.TEMPLATES_LIST,
+                Permission.STYLES_LIST,
+                Permission.BLOCKS_LIST,
+                Permission.PAGES_LIST,
+                Permission.SECTIONS_LIST,
+            ):
                 assert perm not in guest_perms
