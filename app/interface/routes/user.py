@@ -6,9 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
-    AuthContext, SuperAdminContext, get_admin_context, get_auth_context,
-    get_optional_admin_context, get_optional_auth_context,
-    get_pocketbase_client, get_static_pb_client,
+    AuthContext,
+    SuperAdminContext,
+    TenantContext,
+    get_optional_admin_context,
+    get_optional_auth_context,
+    get_pocketbase_client,
+    get_static_pb_client,
+    get_tenant_context,
 )
 from app.interface.dto.user import (
     UserCreateRequest,
@@ -50,13 +55,13 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
 
 @router.get("/me", response_model=UserResponse)
 async def get_my_profile(
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
     record = await pb.find_record_by_id(
         collection=COLLECTION,
-        record_id=auth.record["id"],
-        token=auth.token,
+        record_id=ctx.user_id,
+        token=ctx.token,
     )
     return _record_to_response(record)
 
@@ -64,23 +69,23 @@ async def get_my_profile(
 @router.patch("/me", response_model=UserResponse)
 async def update_my_profile(
     body: UserProfileUpdateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         record = await pb.find_record_by_id(
             collection=COLLECTION,
-            record_id=auth.record["id"],
-            token=auth.token,
+            record_id=ctx.user_id,
+            token=ctx.token,
         )
         return _record_to_response(record)
 
     record = await pb.update_record(
         collection=COLLECTION,
-        record_id=auth.record["id"],
+        record_id=ctx.user_id,
         data=update_data,
-        token=auth.token,
+        token=ctx.token,
     )
     return _record_to_response(record)
 
@@ -95,11 +100,11 @@ async def list_users(
     status: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserListResponse:
-    enforce_permission(auth, Permission.USERS_LIST)
-    tenant = auth_tenant(auth)
+    enforce_permission(ctx.auth, Permission.USERS_LIST)
+    tenant = ctx.tenant_id
 
     filter_parts = [f'tenant_id="{tenant}"']
     if status:
@@ -117,7 +122,7 @@ async def list_users(
         page=page,
         per_page=per_page,
         sort="-created",
-        token=auth.token,
+        token=ctx.token,
     )
 
     return UserListResponse(
@@ -195,20 +200,19 @@ async def create_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
-    enforce_permission(auth, Permission.USERS_LIST)
+    enforce_permission(ctx.auth, Permission.USERS_LIST)
     validate_id(user_id, "user_id")
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
         record_id=user_id,
-        token=auth.token,
+        token=ctx.token,
     )
 
-    if record.get("tenant_id") != auth_tenant(auth):
-        raise HTTPException(status_code=404, detail="User not found")
+    ctx.enforce_owns(record)
 
     return _record_to_response(record)
 
@@ -217,10 +221,10 @@ async def get_user(
 async def update_user(
     user_id: str,
     body: UserUpdateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
-    enforce_permission(auth, Permission.USERS_UPDATE)
+    enforce_permission(ctx.auth, Permission.USERS_UPDATE)
     validate_id(user_id, "user_id")
 
     update_data = body.model_dump(exclude_unset=True)
@@ -228,25 +232,23 @@ async def update_user(
         record = await pb.find_record_by_id(
             collection=COLLECTION,
             record_id=user_id,
-            token=auth.token,
+            token=ctx.token,
         )
-        if record.get("tenant_id") != auth_tenant(auth):
-            raise HTTPException(status_code=404, detail="User not found")
+        ctx.enforce_owns(record)
         return _record_to_response(record)
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
         record_id=user_id,
-        token=auth.token,
+        token=ctx.token,
     )
-    if record.get("tenant_id") != auth_tenant(auth):
-        raise HTTPException(status_code=404, detail="User not found")
+    ctx.enforce_owns(record)
 
     updated = await pb.update_record(
         collection=COLLECTION,
         record_id=user_id,
         data=update_data,
-        token=auth.token,
+        token=ctx.token,
     )
     return _record_to_response(updated)
 
@@ -254,25 +256,24 @@ async def update_user(
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(
     user_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> Response:
-    enforce_permission(auth, Permission.USERS_DELETE)
+    enforce_permission(ctx.auth, Permission.USERS_DELETE)
     validate_id(user_id, "user_id")
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
         record_id=user_id,
-        token=auth.token,
+        token=ctx.token,
     )
-    if record.get("tenant_id") != auth_tenant(auth):
-        raise HTTPException(status_code=404, detail="User not found")
+    ctx.enforce_owns(record)
 
     await pb.update_record(
         collection=COLLECTION,
         record_id=user_id,
         data={"status": "inactive"},
-        token=auth.token,
+        token=ctx.token,
     )
 
     logger.info("user soft-deleted", extra={"user_id": user_id})
