@@ -19,16 +19,14 @@ from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.storage.client import StorageClient
 from app.interface.dependencies import (
-    AuthContext,
-    get_auth_context,
+    TenantContext,
     get_cloudflare_client,
     get_pocketbase_client,
     get_storage_client,
+    get_tenant_context,
 )
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
-    auth_tenant,
-    ensure_tenant_owns,
     map_site_record,
     public_id_to_record_id,
     record_id_to_public_id,
@@ -76,29 +74,27 @@ async def list_sites(
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
     tenant_id: Optional[str] = Query(None),
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteListResponse:
-    enforce_permission(auth, Permission.SITES_LIST)
-    # Tenant-scoped tokens are always filtered to their own tenant; any
-    # incompatible query value is overridden.
-    effective_tenant = auth_tenant(auth) or tenant_id
+    enforce_permission(ctx.auth, Permission.SITES_LIST)
+    effective_tenant = ctx.tenant_id or tenant_id
     filter_expr = None
     if effective_tenant:
         tenant_record_id = await public_id_to_record_id(
-            pb, "tenants", "tenant_id", effective_tenant, auth.token
+            pb, "tenants", "tenant_id", effective_tenant, ctx.token
         )
         filter_expr = f'tenant_id="{tenant_record_id}"'
     result = await pb.list_records(
         collection=COLLECTION,
-        token=auth.token,
+        token=ctx.token,
         filter=filter_expr,
         sort=sort,
         page=page,
         per_page=per_page,
     )
     items = [
-        _record_to_response(await map_site_record(r, auth.token, pb, fields=("tenant_id", "template_id", "domain_id")))
+        _record_to_response(await map_site_record(r, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")))
         for r in result.get("items", [])
     ]
     return SiteListResponse(
@@ -113,22 +109,22 @@ async def list_sites(
 @router.post("", response_model=SiteResponse, status_code=201)
 async def create_site(
     body: SiteCreateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> SiteResponse:
-    enforce_permission(auth, Permission.SITES_CREATE)
+    enforce_permission(ctx.auth, Permission.SITES_CREATE)
     validate_id(body.site_id, "site_id")
-    tenant = auth_tenant(auth)
+    tenant = ctx.tenant_id
     if not tenant:
         raise HTTPException(
             status_code=403, detail="Client access requires tenant_id"
         )
     tenant_record_id = await public_id_to_record_id(
-        pb, "tenants", "tenant_id", tenant, auth.token
+        pb, "tenants", "tenant_id", tenant, ctx.token
     )
     template_record_id = await public_id_to_record_id(
-        pb, "templates", "template_id", body.template_id, auth.token
+        pb, "templates", "template_id", body.template_id, ctx.token
     )
 
     await create_bucket_for_site(body.site_id, storage)
@@ -150,31 +146,31 @@ async def create_site(
         record = await pb.create_record(
             collection=COLLECTION,
             data=data,
-            token=auth.token,
-            user_id=auth.record["id"],
+            token=ctx.token,
+            user_id=ctx.user_id,
         )
     except Exception:
         await delete_bucket_for_site(bucket_name, storage)
         raise
 
-    return _record_to_response(await map_site_record(record, auth.token, pb, fields=("tenant_id", "template_id", "domain_id")))
+    return _record_to_response(await map_site_record(record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")))
 
 
 @router.get("/{site_id}", response_model=SiteResponse)
 async def get_site(
     site_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteResponse:
-    enforce_permission(auth, Permission.SITES_LIST)
+    enforce_permission(ctx.auth, Permission.SITES_LIST)
     validate_id(site_id, "site_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'site_id="{site_id}"',
-        token=auth.token,
+        token=ctx.token,
     )
-    record = await map_site_record(record, auth.token, pb, fields=("tenant_id", "template_id", "domain_id"))
-    ensure_tenant_owns(record, auth)
+    record = await map_site_record(record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id"))
+    ctx.enforce_owns(record)
     return _record_to_response(record)
 
 
@@ -182,18 +178,18 @@ async def get_site(
 async def update_site(
     site_id: str,
     body: SiteUpdateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteResponse:
-    enforce_permission(auth, Permission.SITES_UPDATE)
+    enforce_permission(ctx.auth, Permission.SITES_UPDATE)
     validate_id(site_id, "site_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'site_id="{site_id}"',
-        token=auth.token,
+        token=ctx.token,
     )
-    mapped_existing = await map_site_record(existing, auth.token, pb, fields=("tenant_id", "template_id", "domain_id"))
-    ensure_tenant_owns(mapped_existing, auth)
+    mapped_existing = await map_site_record(existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id"))
+    ctx.enforce_owns(mapped_existing)
 
     if (
         body.template_id is None
@@ -208,7 +204,7 @@ async def update_site(
     update_data: Dict[str, Any] = {}
     if body.template_id is not None:
         update_data["template_id"] = await public_id_to_record_id(
-            pb, "templates", "template_id", body.template_id, auth.token
+            pb, "templates", "template_id", body.template_id, ctx.token
         )
     if body.domain is not None:
         update_data["domain"] = body.domain
@@ -217,17 +213,17 @@ async def update_site(
             update_data["domain_id"] = ""  # unlink
         else:
             dom_record_id = await public_id_to_record_id(
-                pb, "domains", "domain_id", body.domain_id, auth.token
+                pb, "domains", "domain_id", body.domain_id, ctx.token
             )
-            tenant = auth_tenant(auth)
+            tenant = ctx.tenant_id
             if tenant:
                 dom = await pb.find_one_by_filter(
                     collection="domains",
                     filter_expr=f'id="{dom_record_id}"',
-                    token=auth.token,
+                    token=ctx.token,
                 )
                 dom_tenant_public = await record_id_to_public_id(
-                    pb, "tenants", "tenant_id", dom.get("tenant_id"), auth.token
+                    pb, "tenants", "tenant_id", dom.get("tenant_id"), ctx.token
                 )
                 if dom_tenant_public != tenant:
                     raise HTTPException(status_code=404, detail="Domain not found")
@@ -242,29 +238,29 @@ async def update_site(
         collection=COLLECTION,
         record_id=existing["id"],
         data=update_data,
-        token=auth.token,
-        user_id=auth.record["id"],
+        token=ctx.token,
+        user_id=ctx.user_id,
     )
-    return _record_to_response(await map_site_record(record, auth.token, pb, fields=("tenant_id", "template_id", "domain_id")))
+    return _record_to_response(await map_site_record(record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")))
 
 
 @router.delete("/{site_id}", status_code=204)
 async def delete_site(
     site_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     cf: CloudflareClient = Depends(get_cloudflare_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> Response:
-    enforce_permission(auth, Permission.SITES_DELETE)
+    enforce_permission(ctx.auth, Permission.SITES_DELETE)
     validate_id(site_id, "site_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'site_id="{site_id}"',
-        token=auth.token,
+        token=ctx.token,
     )
-    mapped_existing = await map_site_record(existing, auth.token, pb, fields=("tenant_id", "template_id", "domain_id"))
-    ensure_tenant_owns(mapped_existing, auth)
+    mapped_existing = await map_site_record(existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id"))
+    ctx.enforce_owns(mapped_existing)
 
     project_name = sanitize_project_name(site_id)
     base_domain = get_settings().site_base_domain
@@ -280,7 +276,7 @@ async def delete_site(
     except Exception as e:
         logger.warning("failed to remove DNS during delete", extra={"site_id": site_id, "error": str(e)})
 
-    await cleanup_all_domains(project_name, existing.get("domain_id"), cf, pb, auth.token)
+    await cleanup_all_domains(project_name, existing.get("domain_id"), cf, pb, ctx.token)
 
     try:
         await delete_bucket_for_site(sanitize_bucket_name(site_id), storage)
@@ -290,6 +286,6 @@ async def delete_site(
     await pb.delete_record(
         collection=COLLECTION,
         record_id=existing["id"],
-        token=auth.token,
+        token=ctx.token,
     )
     return Response(status_code=204)
