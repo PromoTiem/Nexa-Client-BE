@@ -1,15 +1,15 @@
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
-    AuthContext,
-    get_auth_context,
+    TenantContext,
     get_pocketbase_client,
+    get_tenant_context,
 )
 from app.interface.dto.property import (
     PropertyCreateRequest,
@@ -18,7 +18,7 @@ from app.interface.dto.property import (
     PropertyUpdateRequest,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import build_filter, ensure_site_tenant, validate_id
+from app.interface.route_helpers import build_filter, validate_id
 
 COLLECTION = "properties"
 
@@ -66,19 +66,19 @@ def _record_to_response(record: Dict[str, Any]) -> PropertyResponse:
 async def create_property(
     site_id: str,
     body: PropertyCreateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyResponse:
-    enforce_permission(auth, Permission.PROPERTIES_CREATE)
+    enforce_permission(ctx.auth, Permission.PROPERTIES_CREATE)
     validate_id(site_id, "site_id")
     validate_id(body.property_id, "property_id")
-    await ensure_site_tenant(pb, site_id, auth)
+    await ctx.enforce_site(pb, site_id)
 
     service = PropertyService()
     record = await service.create_property(
         pb=pb,
-        token=auth.token,
-        user_id=auth.record["id"],
+        token=ctx.token,
+        user_id=ctx.user_id,
         site_id=site_id,
         data={
             "property_id": body.property_id,
@@ -118,12 +118,12 @@ async def list_properties(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     slug: Optional[str] = Query(None),
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyListResponse:
-    enforce_permission(auth, Permission.PROPERTIES_LIST)
+    enforce_permission(ctx.auth, Permission.PROPERTIES_LIST)
     validate_id(site_id, "site_id")
-    await ensure_site_tenant(pb, site_id, auth)
+    await ctx.enforce_site(pb, site_id)
 
     filter_parts: List[str] = [
         f'site_id="{site_id}"',
@@ -142,7 +142,7 @@ async def list_properties(
 
     result = await pb.list_records(
         collection=COLLECTION,
-        token=auth.token,
+        token=ctx.token,
         filter=build_filter(filter_parts),
         sort=sort,
         page=page,
@@ -168,17 +168,17 @@ async def list_properties(
 )
 async def get_property(
     property_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyResponse:
-    enforce_permission(auth, Permission.PROPERTIES_LIST)
+    enforce_permission(ctx.auth, Permission.PROPERTIES_LIST)
     validate_id(property_id, "property_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
-        token=auth.token,
+        token=ctx.token,
     )
-    await ensure_site_tenant(pb, record["site_id"], auth)
+    await ctx.enforce_site(pb, record["site_id"])
     return _record_to_response(record)
 
 
@@ -194,17 +194,17 @@ async def get_property(
 async def update_property(
     property_id: str,
     body: PropertyUpdateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyResponse:
-    enforce_permission(auth, Permission.PROPERTIES_UPDATE)
+    enforce_permission(ctx.auth, Permission.PROPERTIES_UPDATE)
     validate_id(property_id, "property_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
-        token=auth.token,
+        token=ctx.token,
     )
-    await ensure_site_tenant(pb, existing["site_id"], auth)
+    await ctx.enforce_site(pb, existing["site_id"])
 
     updates: Dict[str, Any] = {}
     if body.type is not None:
@@ -238,8 +238,8 @@ async def update_property(
     service = PropertyService()
     record = await service.update_property(
         pb=pb,
-        token=auth.token,
-        user_id=auth.record["id"],
+        token=ctx.token,
+        user_id=ctx.user_id,
         record=existing,
         updates=updates,
     )
@@ -257,23 +257,23 @@ async def update_property(
 )
 async def delete_property(
     property_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> Response:
-    enforce_permission(auth, Permission.PROPERTIES_DELETE)
+    enforce_permission(ctx.auth, Permission.PROPERTIES_DELETE)
     validate_id(property_id, "property_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
-        token=auth.token,
+        token=ctx.token,
     )
-    await ensure_site_tenant(pb, existing["site_id"], auth)
+    await ctx.enforce_site(pb, existing["site_id"])
 
     service = PropertyService()
     await service.soft_delete_property(
         pb=pb,
-        token=auth.token,
-        user_id=auth.record["id"],
+        token=ctx.token,
+        user_id=ctx.user_id,
         record=existing,
     )
     return Response(status_code=204)

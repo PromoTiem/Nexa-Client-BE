@@ -112,6 +112,48 @@ async def get_auth_context(
     return AuthContext(token=data["token"], record=data["record"])
 
 
+@dataclass
+class TenantContext:
+    auth: AuthContext
+    tenant_id: Optional[str]
+
+    @property
+    def token(self) -> str:
+        return self.auth.token
+
+    @property
+    def user_id(self) -> str:
+        return self.auth.record["id"]
+
+    def owns(self, record: Dict[str, Any]) -> bool:
+        if not self.tenant_id:
+            return True
+        return record.get("tenant_id") == self.tenant_id
+
+    def enforce_owns(self, record: Dict[str, Any]) -> None:
+        from app.interface.route_helpers import ensure_tenant_owns
+        ensure_tenant_owns(record, self.auth)
+
+    async def enforce_site(self, pb: PocketBaseClient, site_id: str) -> None:
+        from app.interface.route_helpers import ensure_site_tenant
+        await ensure_site_tenant(pb, site_id, self.auth)
+
+    async def enforce_file(
+        self, pb: PocketBaseClient, record: Dict[str, Any]
+    ) -> None:
+        from app.interface.route_helpers import ensure_file_tenant
+        await ensure_file_tenant(pb, record, self.auth)
+
+
+async def get_tenant_context(
+    auth: AuthContext = Depends(get_auth_context),
+) -> TenantContext:
+    return TenantContext(
+        auth=auth,
+        tenant_id=auth.record.get("tenant_id"),
+    )
+
+
 async def get_optional_auth_context(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     settings: Settings = Depends(get_settings),
