@@ -11,6 +11,8 @@ from app.infrastructure.cloudflare.client import CloudflareClient
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient, create_static_pb_client
 from app.infrastructure.storage.client import StorageClient
+from app.interface.auth_models import AuthContext  # noqa: F401 – re-export for backward compat
+from app.interface.route_helpers import ensure_file_tenant, ensure_site_tenant, ensure_tenant_owns
 
 logger = get_logger("auth")
 
@@ -77,12 +79,6 @@ def get_storage_file_service(
     )
 
 
-@dataclass
-class AuthContext:
-    token: str
-    record: Dict[str, Any]
-
-
 async def get_auth_context(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     settings: Settings = Depends(get_settings),
@@ -131,17 +127,14 @@ class TenantContext:
         return record.get("tenant_id") == self.tenant_id
 
     def enforce_owns(self, record: Dict[str, Any]) -> None:
-        from app.interface.route_helpers import ensure_tenant_owns
         ensure_tenant_owns(record, self.auth)
 
     async def enforce_site(self, pb: PocketBaseClient, site_id: str) -> None:
-        from app.interface.route_helpers import ensure_site_tenant
         await ensure_site_tenant(pb, site_id, self.auth)
 
     async def enforce_file(
         self, pb: PocketBaseClient, record: Dict[str, Any]
     ) -> None:
-        from app.interface.route_helpers import ensure_file_tenant
         await ensure_file_tenant(pb, record, self.auth)
 
 

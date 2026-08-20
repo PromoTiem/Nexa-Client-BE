@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from app.interface.dependencies import AuthContext
+from app.interface.auth_models import AuthContext
 from app.interface.rbac import (
     Permission,
     RoleGuard,

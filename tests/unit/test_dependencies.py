@@ -2,7 +2,8 @@ import pytest
 from unittest.mock import AsyncMock
 from fastapi import HTTPException
 
-from app.interface.dependencies import AuthContext, get_auth_context
+from app.interface.auth_models import AuthContext
+from app.interface.dependencies import get_auth_context
 from app.config import Settings
 
 
