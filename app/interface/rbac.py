@@ -36,6 +36,12 @@ class Permission(str, Enum):
     PAGES_LIST = "pages:list"
     SECTIONS_LIST = "sections:list"
 
+    BUILDS_LIST = "builds:list"
+    BUILDS_CREATE = "builds:create"
+    BUILDS_DELETE = "builds:delete"
+
+    SERVE_ACCESS = "serve:access"
+
     MEDIA_UPLOAD = "media:upload"
     MEDIA_LIST = "media:list"
     MEDIA_DELETE = "media:delete"
@@ -62,6 +68,10 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.USERS_CREATE,
         Permission.USERS_UPDATE,
         Permission.USERS_DELETE,
+        Permission.BUILDS_LIST,
+        Permission.BUILDS_CREATE,
+        Permission.BUILDS_DELETE,
+        Permission.SERVE_ACCESS,
         Permission.MEDIA_UPLOAD,
         Permission.MEDIA_LIST,
         Permission.MEDIA_DELETE,
@@ -85,6 +95,10 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.USERS_CREATE,
         Permission.USERS_UPDATE,
         Permission.USERS_DELETE,
+        Permission.BUILDS_LIST,
+        Permission.BUILDS_CREATE,
+        Permission.BUILDS_DELETE,
+        Permission.SERVE_ACCESS,
         Permission.MEDIA_UPLOAD,
         Permission.MEDIA_LIST,
         Permission.MEDIA_DELETE,
@@ -102,6 +116,9 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.BLOCKS_LIST,
         Permission.PAGES_LIST,
         Permission.SECTIONS_LIST,
+        Permission.BUILDS_LIST,
+        Permission.BUILDS_CREATE,
+        Permission.SERVE_ACCESS,
         Permission.MEDIA_UPLOAD,
         Permission.MEDIA_LIST,
         Permission.STORAGE_ACCESS,
@@ -114,6 +131,7 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.BLOCKS_LIST,
         Permission.PAGES_LIST,
         Permission.SECTIONS_LIST,
+        Permission.BUILDS_LIST,
         Permission.MEDIA_LIST,
     }),
 }
@@ -207,10 +225,6 @@ def has_permission(auth: AuthContext, permission: Permission) -> bool:
     except ValueError:
         role = UserRole.GUEST
     return permission in ROLE_PERMISSIONS.get(role, frozenset())
-
-
-def is_superuser(auth: AuthContext) -> bool:
-    return bool(auth.record.get("is_superuser", False))
 
 
 def can_delete_resources(auth: AuthContext) -> bool:
