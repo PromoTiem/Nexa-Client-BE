@@ -363,7 +363,6 @@ def create_static_pb_client(
     """
     if settings is not None:
         base_url = base_url or settings.pocketbase_url
-        static_token = static_token or settings.pocketbase_api_token
         timeout = getattr(settings, "pocketbase_timeout", timeout)
         max_retries = getattr(settings, "pocketbase_max_retries", max_retries)
         retry_backoff = getattr(settings, "pocketbase_retry_backoff", retry_backoff)
