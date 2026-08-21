@@ -8,7 +8,6 @@ from app.interface.rbac import (
     UserRole,
     ROLE_PERMISSIONS,
     has_permission,
-    is_superuser,
     can_delete_resources,
     can_manage_users,
 )
@@ -60,17 +59,6 @@ MOCK_NO_ROLE = AuthContext(
         "id": "user_no_role",
         "email": "norole@example.com",
         "tenant_id": "tenant_abc",
-    },
-)
-
-MOCK_SUPERUSER = AuthContext(
-    token="superuser_token",
-    record={
-        "id": "user_superuser",
-        "email": "super@example.com",
-        "tenant_id": "tenant_abc",
-        "role": "owner",
-        "is_superuser": True,
     },
 )
 
@@ -145,14 +133,6 @@ class TestRoleGuard:
 
 
 class TestHelperFunctions:
-    def test_is_superuser_true(self):
-        assert is_superuser(MOCK_SUPERUSER)
-
-    def test_is_superuser_false(self):
-        assert not is_superuser(MOCK_OWNER)
-        assert not is_superuser(MOCK_ADMIN)
-        assert not is_superuser(MOCK_MEMBER)
-
     def test_can_delete_resources(self):
         assert can_delete_resources(MOCK_OWNER)
         assert can_delete_resources(MOCK_ADMIN)
@@ -200,5 +180,6 @@ class TestPermissionMatrix:
                 Permission.BLOCKS_LIST,
                 Permission.PAGES_LIST,
                 Permission.SECTIONS_LIST,
+                Permission.BUILDS_LIST,
             ):
                 assert perm not in guest_perms

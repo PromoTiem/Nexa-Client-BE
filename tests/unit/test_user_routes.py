@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
-from app.interface.dependencies import SuperAdminContext, TenantContext
-from app.interface.rbac import require_permission, Permission, has_permission
+from app.interface.dependencies import TenantContext
+from app.interface.rbac import Permission, has_permission
 from app.interface.routes.user import (
     _record_to_response,
     get_my_profile,
@@ -208,7 +208,7 @@ class TestCreateUser:
         from app.interface.dto.user import UserCreateRequest
         body = UserCreateRequest(email="new@example.com", name="New User")
 
-        result = await create_user(body=body, auth=MOCK_ADMIN_AUTH, pb=pb)
+        result = await create_user(body=body, ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 
         assert result.user.email == "new@example.com"
         assert result.temporary_password is not None
@@ -223,8 +223,20 @@ class TestCreateUser:
         body = UserCreateRequest(email="new@example.com")
 
         with pytest.raises(HTTPException) as exc_info:
-            await create_user(body=body, auth=MOCK_MEMBER_AUTH, pb=pb)
+            await create_user(body=body, ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb)
         assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_create_user_in_different_tenant_raises_400(self):
+        pb = AsyncMock()
+
+        from app.interface.dto.user import UserCreateRequest
+        body = UserCreateRequest(email="new@example.com", tenant_id="tenant_xyz")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_user(body=body, ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
+        assert exc_info.value.status_code == 400
+        assert "Cannot create user in a different tenant" in str(exc_info.value.detail)
 
 
 class TestGetUser:
@@ -334,71 +346,3 @@ class TestDeleteUser:
         with pytest.raises(HTTPException) as exc_info:
             await delete_user(user_id="user_123", ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
         assert exc_info.value.status_code == 404
-
-
-MOCK_SUPERADMIN = SuperAdminContext(token="pb-api-token")
-
-
-class TestCreateUserSuperadmin:
-    @pytest.mark.asyncio
-    async def test_superadmin_creates_user_with_tenant_id(self):
-        static_pb = AsyncMock()
-        created_record = {
-            **MOCK_USER_RECORD,
-            "id": "new_user_sa",
-            "email": "sa@example.com",
-            "tenant_id": "tenant_xyz",
-        }
-        static_pb.create_record = AsyncMock(return_value=created_record)
-
-        from app.interface.dto.user import UserCreateRequest
-        body = UserCreateRequest(
-            email="sa@example.com",
-            name="SA User",
-            tenant_id="tenant_xyz",
-            role="owner",
-        )
-
-        result = await create_user(
-            body=body, auth=None, admin=MOCK_SUPERADMIN, pb=AsyncMock(), static_pb=static_pb
-        )
-
-        assert result.user.email == "sa@example.com"
-        assert result.user.tenant_id == "tenant_xyz"
-        assert result.temporary_password is not None
-        static_pb.create_record.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_superadmin_without_tenant_id_raises_400(self):
-        from app.interface.dto.user import UserCreateRequest
-        body = UserCreateRequest(email="sa@example.com")
-
-        with pytest.raises(HTTPException) as exc_info:
-            await create_user(
-                body=body, auth=None, admin=MOCK_SUPERADMIN, pb=AsyncMock(), static_pb=AsyncMock()
-            )
-        assert exc_info.value.status_code == 400
-        assert "tenant_id is required" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_user_auth_with_tenant_id_raises_400(self):
-        pb = AsyncMock()
-        from app.interface.dto.user import UserCreateRequest
-        body = UserCreateRequest(
-            email="new@example.com",
-            tenant_id="tenant_xyz",
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await create_user(body=body, auth=MOCK_ADMIN_AUTH, pb=pb)
-        assert exc_info.value.status_code == 400
-        assert "tenant_id cannot be specified" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_no_auth_raises_401(self):
-        from app.interface.dto.user import UserCreateRequest
-        body = UserCreateRequest(email="new@example.com")
-
-        with pytest.raises(HTTPException) as exc_info:
-            await create_user(body=body, auth=None, admin=None, pb=AsyncMock(), static_pb=AsyncMock())
-        assert exc_info.value.status_code == 401
