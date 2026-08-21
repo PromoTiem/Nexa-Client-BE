@@ -1,5 +1,7 @@
 from typing import Optional
 
+import re
+
 from app.application.services.site_deployer import (
     deploy_site,
     remove_dns_for_domain,
@@ -337,7 +339,6 @@ async def get_pipeline(*, pb, site_record, token) -> PipelineResponse:
 async def _extract_static_files_from_storage(
     storage, image_key: str
 ) -> dict:
-    import re
     parsed = re.match(r"s3://([^/]+)/(.+)", image_key)
     if not parsed:
         raise ValueError(f"invalid image key format: {image_key}")

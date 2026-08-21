@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -62,6 +62,19 @@ async def _resolve_site_tenant(
     return site.get("tenant_id", "")
 
 
+async def _enforce_build_tenant(
+    record: Dict[str, Any], ctx: TenantContext, pb: PocketBaseClient
+) -> None:
+    if not ctx.tenant_id:
+        return
+    site_tenant = await _resolve_site_tenant(record["site_id"], pb, ctx.token)
+    site_tenant_public = await record_id_to_public_id(
+        pb, "tenants", "tenant_id", site_tenant, ctx.token
+    )
+    if site_tenant_public != ctx.tenant_id:
+        raise HTTPException(status_code=404, detail="Build not found")
+
+
 @router.get("", response_model=BuildListResponse)
 async def list_builds(
     page: int = Query(1, ge=1),
@@ -116,14 +129,7 @@ async def get_build(
         filter_expr=f'build_id="{build_id}"',
         token=ctx.token,
     )
-    site_tenant = await _resolve_site_tenant(record["site_id"], pb, ctx.token)
-    if ctx.tenant_id:
-        site_tenant_public = await record_id_to_public_id(
-            pb, "tenants", "tenant_id", site_tenant, ctx.token
-        )
-        if site_tenant_public != ctx.tenant_id:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Build not found")
+    await _enforce_build_tenant(record, ctx, pb)
     return _record_to_response(record)
 
 
@@ -139,7 +145,6 @@ async def create_build(
 
     tenant = ctx.tenant_id
     if not tenant:
-        from fastapi import HTTPException
         raise HTTPException(
             status_code=403, detail="Client access requires tenant_id"
         )
@@ -154,7 +159,6 @@ async def create_build(
         token=ctx.token,
     )
     if site.get("tenant_id") != tenant_record_id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Site not found")
 
     data: Dict[str, Any] = {
@@ -199,14 +203,7 @@ async def update_build(
         filter_expr=f'build_id="{build_id}"',
         token=ctx.token,
     )
-    site_tenant = await _resolve_site_tenant(record["site_id"], pb, ctx.token)
-    if ctx.tenant_id:
-        site_tenant_public = await record_id_to_public_id(
-            pb, "tenants", "tenant_id", site_tenant, ctx.token
-        )
-        if site_tenant_public != ctx.tenant_id:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Build not found")
+    await _enforce_build_tenant(record, ctx, pb)
 
     updates: Dict[str, Any] = {}
     if body.status is not None:
@@ -240,14 +237,7 @@ async def delete_build(
         filter_expr=f'build_id="{build_id}"',
         token=ctx.token,
     )
-    site_tenant = await _resolve_site_tenant(record["site_id"], pb, ctx.token)
-    if ctx.tenant_id:
-        site_tenant_public = await record_id_to_public_id(
-            pb, "tenants", "tenant_id", site_tenant, ctx.token
-        )
-        if site_tenant_public != ctx.tenant_id:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Build not found")
+    await _enforce_build_tenant(record, ctx, pb)
     await pb.delete_record(
         collection=COLLECTION,
         record_id=record["id"],
