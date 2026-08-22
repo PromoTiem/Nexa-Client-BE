@@ -707,10 +707,9 @@ class TestCreateStaticPbClient:
     def test_creates_client_from_settings(self):
         class FakeSettings:
             pocketbase_url = "http://pb:8090"
-            pocketbase_api_token = "settings_token"
             pocketbase_timeout = 5.0
             pocketbase_max_retries = 2
             pocketbase_retry_backoff = 0.1
 
-        client = create_static_pb_client(settings=FakeSettings())
+        client = create_static_pb_client(static_token="settings_token", settings=FakeSettings())
         assert isinstance(client, PocketBaseClient)

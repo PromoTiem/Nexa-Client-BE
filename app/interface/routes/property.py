@@ -1,9 +1,10 @@
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
+from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
@@ -23,6 +24,7 @@ from app.interface.route_helpers import build_filter, validate_id
 COLLECTION = "properties"
 
 router = APIRouter()
+public_property_router = APIRouter()
 
 logger = get_logger("property_routes")
 
@@ -277,3 +279,114 @@ async def delete_property(
         record=existing,
     )
     return Response(status_code=204)
+
+
+# ------------------------------------------------------------------ #
+# Public routes (prefix /public)                                     #
+# ------------------------------------------------------------------ #
+
+
+@public_property_router.get(
+    "/sites/{site_id}/properties",
+    response_model=PropertyListResponse,
+)
+async def list_public_properties(
+    request: Request,
+    site_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    sort: str = Query("-ordering"),
+    type: Optional[str] = Query(None),
+    subtype: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    slug: Optional[str] = Query(None),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    settings: Settings = Depends(get_settings),
+) -> PropertyListResponse:
+    validate_id(site_id, "site_id")
+
+    admin_data = await pb.auth_with_password(
+        collection=settings.pocketbase_auth_collection,
+        identity=settings.pocketbase_admin_email,
+        password=settings.pocketbase_admin_password,
+    )
+
+    filter_parts: List[str] = [
+        f'site_id="{site_id}"',
+        SOFT_DELETE_FILTER,
+    ]
+    if status:
+        filter_parts.append(f'status="{status}"')
+    else:
+        filter_parts.append('status="published"')
+    if type:
+        filter_parts.append(f'type="{type}"')
+    if subtype:
+        filter_parts.append(f'subtype="{subtype}"')
+    if search:
+        filter_parts.append(f'name~"{search}"')
+    if slug:
+        filter_parts.append(f'slug="{slug}"')
+
+    result = await pb.list_records(
+        collection=COLLECTION,
+        token=admin_data["token"],
+        filter=build_filter(filter_parts),
+        sort=sort,
+        page=page,
+        per_page=per_page,
+    )
+    return PropertyListResponse(
+        items=[_record_to_response(r) for r in result.get("items", [])],
+        total=result.get("totalItems", 0),
+        page=result.get("page", page),
+        per_page=result.get("perPage", per_page),
+        total_pages=result.get("totalPages", 0),
+    )
+
+
+@public_property_router.post(
+    "/sites/{site_id}/properties",
+    response_model=PropertyResponse,
+    status_code=201,
+)
+async def create_public_property(
+    request: Request,
+    site_id: str,
+    body: PropertyCreateRequest,
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    settings: Settings = Depends(get_settings),
+) -> PropertyResponse:
+    validate_id(site_id, "site_id")
+    validate_id(body.property_id, "property_id")
+
+    admin_data = await pb.auth_with_password(
+        collection=settings.pocketbase_auth_collection,
+        identity=settings.pocketbase_admin_email,
+        password=settings.pocketbase_admin_password,
+    )
+
+    service = PropertyService()
+    record = await service.create_property(
+        pb=pb,
+        token=admin_data["token"],
+        user_id="",
+        site_id=site_id,
+        data={
+            "property_id": body.property_id,
+            "type": body.type,
+            "subtype": body.subtype,
+            "name": body.name,
+            "slug": body.slug,
+            "status": body.status,
+            "excerpt": body.excerpt,
+            "featured_image": body.featured_image,
+            "seo": body.seo,
+            "fields": body.fields,
+            "groups": body.groups,
+            "metadata": body.metadata,
+            "ordering": body.ordering,
+        },
+    )
+    return _record_to_response(record)

@@ -6,13 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
-    AuthContext,
-    SuperAdminContext,
     TenantContext,
-    get_optional_admin_context,
-    get_optional_auth_context,
     get_pocketbase_client,
-    get_static_pb_client,
     get_tenant_context,
 )
 from app.interface.dto.user import (
@@ -23,8 +18,8 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
-from app.interface.rbac import Permission, enforce_permission, has_permission
-from app.interface.route_helpers import auth_tenant, build_filter, validate_id
+from app.interface.rbac import Permission, enforce_permission
+from app.interface.route_helpers import build_filter, validate_id
 
 COLLECTION = "users"
 
@@ -42,7 +37,6 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         tenant_id=record.get("tenant_id", ""),
         role=record.get("role", "member"),
         status=record.get("status", "active"),
-        is_superuser=bool(record.get("is_superuser", False)),
         last_login=record.get("last_login", ""),
         metadata=record.get("metadata") or {},
         created=record.get("created", ""),
@@ -137,40 +131,20 @@ async def list_users(
 @router.post("", response_model=UserCreateResponse, status_code=201)
 async def create_user(
     body: UserCreateRequest,
-    auth: Optional[AuthContext] = Depends(get_optional_auth_context),
-    admin: Optional[SuperAdminContext] = Depends(get_optional_admin_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
-    static_pb: PocketBaseClient = Depends(get_static_pb_client),
 ) -> UserCreateResponse:
-    if auth:
-        if not has_permission(auth, Permission.USERS_CREATE):
-            raise HTTPException(status_code=403, detail="Permission denied: users:create")
-        tenant = auth_tenant(auth)
-        pb_client = pb
-        token = auth.token
-        if body.tenant_id:
-            raise HTTPException(
-                status_code=400,
-                detail="tenant_id cannot be specified with user authentication",
-            )
-    elif admin:
-        if not body.tenant_id:
-            raise HTTPException(
-                status_code=400,
-                detail="tenant_id is required for superadmin user creation",
-            )
-        tenant = body.tenant_id
-        pb_client = static_pb
-        token = admin.token
-    else:
+    enforce_permission(ctx.auth, Permission.USERS_CREATE)
+
+    if body.tenant_id and body.tenant_id != ctx.tenant_id:
         raise HTTPException(
-            status_code=401,
-            detail="Authentication required: provide Bearer token or x_api_be_token header",
+            status_code=400,
+            detail="Cannot create user in a different tenant",
         )
 
     temp_password = secrets.token_urlsafe(12)
 
-    record = await pb_client.create_record(
+    record = await pb.create_record(
         collection=COLLECTION,
         data={
             "email": body.email,
@@ -178,17 +152,17 @@ async def create_user(
             "passwordConfirm": temp_password,
             "name": body.name or "",
             "phone": body.phone or "",
-            "tenant_id": tenant,
+            "tenant_id": ctx.tenant_id,
             "role": body.role,
             "status": "active",
             "metadata": body.metadata or {},
         },
-        token=token,
+        token=ctx.token,
     )
 
     logger.info(
         "user created",
-        extra={"user_id": record["id"], "email": body.email, "tenant": tenant},
+        extra={"user_id": record["id"], "email": body.email, "tenant": ctx.tenant_id},
     )
 
     return UserCreateResponse(
