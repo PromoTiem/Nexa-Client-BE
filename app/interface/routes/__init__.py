@@ -6,6 +6,7 @@ from app.interface.routes.health import router as health_router
 from app.interface.routes.site import router as site_router
 from app.interface.routes.serve import router as serve_router
 from app.interface.routes.property import router as property_router
+from app.interface.routes.property import public_property_router
 from app.interface.routes.template import router as template_router
 from app.interface.routes.style import router as style_router
 from app.interface.routes.block import router as block_router
@@ -24,6 +25,7 @@ router.include_router(site_router, prefix="/sites", tags=["site"])
 router.include_router(build_router, prefix="/builds", tags=["build"])
 router.include_router(serve_router, prefix="/sites", tags=["serve"])
 router.include_router(property_router, tags=["property"])
+router.include_router(public_property_router, prefix="/public", tags=["property", "public"])
 router.include_router(template_router, prefix="/templates", tags=["template"])
 router.include_router(style_router, prefix="/styles", tags=["style"])
 router.include_router(block_router, prefix="/blocks", tags=["block"])
