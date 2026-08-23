@@ -1,20 +1,25 @@
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.config import Settings, get_settings
 from app.infrastructure.pocketbase.client import PocketBaseClient
-from app.interface.dependencies import get_pocketbase_client, _bearer
+from app.interface.dependencies import _bearer, get_pocketbase_client
 from app.interface.dto.auth import (
-    AuthLoginRequest, AuthLoginResponse, AuthRefreshResponse
+    AuthLoginRequest,
+    AuthLoginResponse,
+    AuthRefreshResponse,
 )
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/login", response_model=AuthLoginResponse)
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     body: AuthLoginRequest,
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
@@ -29,15 +34,15 @@ async def login(
 
 
 @router.post("/refresh", response_model=AuthRefreshResponse)
+@limiter.limit("30/minute")
 async def refresh(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> AuthRefreshResponse:
     if not credentials:
-        raise HTTPException(
-            status_code=401, detail="Missing authorization token"
-        )
+        raise HTTPException(status_code=401, detail="Missing authorization token")
     data = await pb.auth_refresh(
         collection=settings.pocketbase_auth_collection,
         token=credentials.credentials,

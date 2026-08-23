@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -9,16 +9,16 @@ class PageResponse(BaseModel):
     id: str
     page_id: str
     name: str
-    slug: Optional[str] = None
-    style_id: Optional[str] = None
-    layout: Optional[Dict[str, Any]] = None
-    settings: Optional[Dict[str, Any]] = None
-    section_ids: Optional[List[str]] = None
-    block_ids: Optional[List[str]] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    created_by: Optional[str] = None
-    updated_by: Optional[str] = None
+    slug: str | None = None
+    style_id: str | None = None
+    layout: dict[str, Any] | None = None
+    settings: dict[str, Any] | None = None
+    section_ids: list[str] | None = None
+    block_ids: list[str] | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
 
 
 PageListResponse = PaginatedResponse[PageResponse]

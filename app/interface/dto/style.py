@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -9,13 +9,13 @@ class StyleResponse(BaseModel):
     id: str
     style_id: str
     name: str
-    description: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    tailwind_css: Optional[Dict[str, Any]] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    created_by: Optional[str] = None
-    updated_by: Optional[str] = None
+    description: str | None = None
+    config: dict[str, Any] | None = None
+    tailwind_css: dict[str, Any] | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
 
 
 StyleListResponse = PaginatedResponse[StyleResponse]

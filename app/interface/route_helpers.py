@@ -1,10 +1,11 @@
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from fastapi import HTTPException
 
-from app.interface.auth_models import AuthContext
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.interface.auth_models import AuthContext
 
 # ----- ID validation -------------------------------------------------- #
 
@@ -16,26 +17,82 @@ def validate_id(value: str, name: str = "id") -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {name} format")
 
 
+# ----- filter sanitization -------------------------------------------------- #
+
+# Characters that could be used for PocketBase filter injection
+_FILTER_UNSAFE_RE = re.compile(r'["\\]')
+
+
+def sanitize_filter_value(value: str) -> str:
+    """Escape double quotes and backslashes in filter values to prevent injection."""
+    return _FILTER_UNSAFE_RE.sub(lambda m: "\\" + m.group(0), value)
+
+
+# ----- sort validation -------------------------------------------------- #
+
+# Valid sort field names (alphanumeric + underscore only)
+_SORT_FIELD_RE = re.compile(r"^-?[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_sort(value: str, allowed_fields: list[str] | None = None) -> str:
+    """Validate sort parameter to prevent injection.
+
+    Args:
+        value: The sort string to validate (e.g., "-created_at" or "name")
+        allowed_fields: Optional list of allowed field names. If provided,
+                       the sort field must be in this list.
+
+    Returns:
+        The validated sort string.
+
+    Raises:
+        HTTPException: 400 if the sort format is invalid.
+    """
+    parts = value.split(",")
+    validated_parts = []
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # Extract field name (remove leading - for descending)
+        field = part.lstrip("-")
+
+        if not _SORT_FIELD_RE.match(part):
+            raise HTTPException(status_code=400, detail=f"Invalid sort format: {part}")
+
+        if allowed_fields and field not in allowed_fields:
+            raise HTTPException(status_code=400, detail=f"Invalid sort field: {field}")
+
+        validated_parts.append(part)
+
+    return ",".join(validated_parts) if validated_parts else "-created_at"
+
+
 # ----- filter building -------------------------------------------------- #
 
-def build_filter(parts: List[str]) -> Optional[str]:
+
+def build_filter(parts: list[str]) -> str | None:
     """Join filter parts with ``&&`` into a single PocketBase filter expression."""
     return " && ".join(parts) if parts else None
 
 
 # ----- auth / tenant helpers ------------------------------------------- #
 
-def auth_tenant(auth: AuthContext) -> Optional[str]:
+
+def auth_tenant(auth: AuthContext) -> str | None:
     return auth.record.get("tenant_id")
 
 
-def ensure_tenant_owns(record: Dict[str, Any], auth: AuthContext) -> None:
+def ensure_tenant_owns(record: dict[str, Any], auth: AuthContext) -> None:
     tenant = auth_tenant(auth)
     if tenant and record.get("tenant_id") != tenant:
         raise HTTPException(status_code=404, detail="Record not found")
 
 
 # ----- PocketBase ID resolution ---------------------------------------- #
+
 
 async def ensure_site_tenant(
     pb: PocketBaseClient,
@@ -64,7 +121,7 @@ async def ensure_site_tenant(
 
 async def ensure_file_tenant(
     pb: PocketBaseClient,
-    record: Dict[str, Any],
+    record: dict[str, Any],
     auth: AuthContext,
 ) -> None:
     """Verify that a file record's parent site belongs to the caller's tenant.
@@ -100,9 +157,9 @@ async def record_id_to_public_id(
     pb: PocketBaseClient,
     collection: str,
     public_field: str,
-    record_id: Optional[str],
+    record_id: str | None,
     token: str,
-) -> Optional[str]:
+) -> str | None:
     if not record_id:
         return None
     try:
@@ -118,12 +175,13 @@ async def record_id_to_public_id(
 
 # ----- record field mapping -------------------------------------------- #
 
+
 async def map_site_record(
-    record: Dict[str, Any],
+    record: dict[str, Any],
     token: str,
     pb: PocketBaseClient,
     fields: Sequence[str] = ("tenant_id",),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve internal PocketBase IDs to public IDs for the given fields."""
     mapped = dict(record)
     field_collection_map = {
@@ -137,5 +195,3 @@ async def map_site_record(
             pb, collection, public_field, record.get(field), token
         )
     return mapped
-
-

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,9 +9,9 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
+from app.interface.dto.page import PageListResponse, PageResponse
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import validate_id
-from app.interface.dto.page import PageResponse, PageListResponse
 
 COLLECTION = "pages"
 
@@ -19,7 +19,7 @@ router = APIRouter()
 logger = get_logger("page_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> PageResponse:
+def _record_to_response(record: dict[str, Any]) -> PageResponse:
     return PageResponse(
         id=record["id"],
         page_id=record["page_id"],

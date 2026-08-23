@@ -1,8 +1,8 @@
-import pytest
 import httpx
+import pytest
 
-from app.main import app
 from app.config import get_settings
+from app.main import app
 
 
 @pytest.fixture

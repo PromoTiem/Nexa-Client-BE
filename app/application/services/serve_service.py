@@ -1,5 +1,3 @@
-from typing import Optional
-
 import re
 
 from app.application.services.site_deployer import (
@@ -53,21 +51,22 @@ SERVE_TRANSITIONS = {
 }
 
 
-def normalize_serve_status(raw: Optional[str]) -> Optional[str]:
+def normalize_serve_status(raw: str | None) -> str | None:
     if raw is None or raw == "":
         return None
     return raw
 
 
-def update_stage_log(log: Optional[dict], target: Optional[str] = None) -> dict:
+def update_stage_log(log: dict | None, target: str | None = None) -> dict:
     from app.application.services.utils import utc_now_iso
+
     result = dict(log) if isinstance(log, dict) else {}
     if target is not None:
         result[f"{target}_at"] = utc_now_iso()
     return result
 
 
-def assert_transition(current: Optional[str], target: str) -> None:
+def assert_transition(current: str | None, target: str) -> None:
     allowed = SERVE_TRANSITIONS.get(current, set())
     if target not in allowed:
         raise ServeTransitionError(
@@ -75,7 +74,9 @@ def assert_transition(current: Optional[str], target: str) -> None:
         )
 
 
-async def patch_status(*, pb, site_record, target, token, user_id) -> ServeStateResponse:
+async def patch_status(
+    *, pb, site_record, target, token, user_id
+) -> ServeStateResponse:
     site_id = site_record["site_id"]
     current = normalize_serve_status(site_record.get("serve_status"))
     assert_transition(current, target)
@@ -252,7 +253,7 @@ async def stop(*, pb, cf, site_record, token, user_id) -> SiteStopResponse:
                 extra={"error": str(e)},
             )
 
-    unbind_error: Optional[Exception] = None
+    unbind_error: Exception | None = None
     for cd in custom_domains + [derived_domain]:
         try:
             await remove_domain_from_pages(project_name, cd, cf)
@@ -336,9 +337,7 @@ async def get_pipeline(*, pb, site_record, token) -> PipelineResponse:
     return PipelineResponse(site_id=site_id, build=build, serve=serve, domain=domain)
 
 
-async def _extract_static_files_from_storage(
-    storage, image_key: str
-) -> dict:
+async def _extract_static_files_from_storage(storage, image_key: str) -> dict:
     parsed = re.match(r"s3://([^/]+)/(.+)", image_key)
     if not parsed:
         raise ValueError(f"invalid image key format: {image_key}")
@@ -351,7 +350,7 @@ async def _extract_static_files_from_storage(
         key = obj["Key"]
         if key.endswith("/"):
             continue
-        relative = key[len(prefix):].lstrip("/")
+        relative = key[len(prefix) :].lstrip("/")
         if not relative:
             continue
         obj_data = await storage.get_object(bucket=bucket, key=key)

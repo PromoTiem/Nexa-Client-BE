@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Response
 
@@ -27,7 +27,7 @@ from app.interface.route_helpers import validate_id
 router = APIRouter()
 
 
-def _record_to_response(record: Dict[str, Any]) -> StorageFileResponse:
+def _record_to_response(record: dict[str, Any]) -> StorageFileResponse:
     return StorageFileResponse(
         file_id=record["file_id"],
         site_id=record["site_id"],
@@ -85,16 +85,14 @@ async def confirm_upload(
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, ctx.token)
     await ctx.enforce_file(pb, record)
-    record = await service.confirm_upload(
-        file_id, pb, ctx.token, ctx.user_id
-    )
+    record = await service.confirm_upload(file_id, pb, ctx.token, ctx.user_id)
     return _record_to_response(record)
 
 
 @router.get("", response_model=StorageListResponse)
 async def list_storage(
     site_id: str = Query(...),
-    page_id: Optional[str] = Query(None),
+    page_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     ctx: TenantContext = Depends(get_tenant_context),
@@ -106,9 +104,7 @@ async def list_storage(
     if page_id is not None:
         validate_id(page_id, "page_id")
     await ctx.enforce_site(pb, site_id)
-    result = await service.list_files(
-        site_id, page_id, page, limit, pb, ctx.token
-    )
+    result = await service.list_files(site_id, page_id, page, limit, pb, ctx.token)
     items = [_record_to_response(r) for r in result.get("items", [])]
     return StorageListResponse(
         items=items,
@@ -144,9 +140,7 @@ async def get_download_url(
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, ctx.token)
     await ctx.enforce_file(pb, record)
-    download_url, expires_at = await service.get_download_url(
-        file_id, pb, ctx.token
-    )
+    download_url, expires_at = await service.get_download_url(file_id, pb, ctx.token)
     return DownloadUrlResponse(download_url=download_url, expires_at=expires_at)
 
 
@@ -160,7 +154,7 @@ async def update_storage(
 ) -> StorageFileResponse:
     enforce_permission(ctx.auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if body.name is not None:
         updates["name"] = body.name
     if body.page_id is not None:
@@ -172,9 +166,7 @@ async def update_storage(
         return _record_to_response(record)
     record = await service.get_record(file_id, pb, ctx.token)
     await ctx.enforce_file(pb, record)
-    record = await service.update_metadata(
-        file_id, updates, pb, ctx.token, ctx.user_id
-    )
+    record = await service.update_metadata(file_id, updates, pb, ctx.token, ctx.user_id)
     return _record_to_response(record)
 
 

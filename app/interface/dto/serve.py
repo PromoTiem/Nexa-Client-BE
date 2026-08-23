@@ -1,4 +1,4 @@
-from typing import Dict, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -13,8 +13,8 @@ class ServeStatusPatchRequest(BaseModel):
 
 class ServeStateResponse(BaseModel):
     site_id: str
-    serve_status: Optional[ServeStatus] = None
-    serve_stage_log: Dict[str, str] = {}
+    serve_status: ServeStatus | None = None
+    serve_stage_log: dict[str, str] = {}
 
 
 class SiteServeResponse(BaseModel):
@@ -23,7 +23,7 @@ class SiteServeResponse(BaseModel):
     pages_url: str
     custom_domain: str
     deployment_url: str
-    serve_status: Optional[ServeStatus] = None
+    serve_status: ServeStatus | None = None
 
 
 class SiteStopResponse(BaseModel):
@@ -31,27 +31,27 @@ class SiteStopResponse(BaseModel):
     status: str
     custom_domain: str
     pages_url: str
-    serve_status: Optional[ServeStatus] = None
+    serve_status: ServeStatus | None = None
 
 
 class PipelineBuild(BaseModel):
-    latest_build_id: Optional[str] = None
-    build_status: Optional[str] = None
+    latest_build_id: str | None = None
+    build_status: str | None = None
 
 
 class PipelineServe(BaseModel):
-    status: Optional[ServeStatus] = None
-    stage_log: Dict[str, str] = {}
+    status: ServeStatus | None = None
+    stage_log: dict[str, str] = {}
 
 
 class PipelineDomain(BaseModel):
-    domain_id: Optional[str] = None
-    domain: Optional[str] = None
-    status: Optional[str] = None
+    domain_id: str | None = None
+    domain: str | None = None
+    status: str | None = None
 
 
 class PipelineResponse(BaseModel):
     site_id: str
-    build: Optional[PipelineBuild] = None
+    build: PipelineBuild | None = None
     serve: PipelineServe
-    domain: Optional[PipelineDomain] = None
+    domain: PipelineDomain | None = None

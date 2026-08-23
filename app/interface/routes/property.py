@@ -1,10 +1,9 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
-from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
@@ -19,7 +18,12 @@ from app.interface.dto.property import (
     PropertyUpdateRequest,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import build_filter, validate_id
+from app.interface.route_helpers import (
+    build_filter,
+    sanitize_filter_value,
+    validate_id,
+    validate_sort,
+)
 
 COLLECTION = "properties"
 
@@ -29,7 +33,7 @@ public_property_router = APIRouter()
 logger = get_logger("property_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> PropertyResponse:
+def _record_to_response(record: dict[str, Any]) -> PropertyResponse:
     return PropertyResponse(
         id=record["id"],
         property_id=record["property_id"],
@@ -115,32 +119,35 @@ async def list_properties(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-ordering"),
-    type: Optional[str] = Query(None),
-    subtype: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    slug: Optional[str] = Query(None),
+    type: str | None = Query(None),
+    subtype: str | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
+    slug: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyListResponse:
     enforce_permission(ctx.auth, Permission.PROPERTIES_LIST)
     validate_id(site_id, "site_id")
     await ctx.enforce_site(pb, site_id)
+    sort = validate_sort(
+        sort, allowed_fields=["ordering", "created_at", "updated_at", "name", "status"]
+    )
 
-    filter_parts: List[str] = [
+    filter_parts: list[str] = [
         f'site_id="{site_id}"',
         SOFT_DELETE_FILTER,
     ]
     if type:
-        filter_parts.append(f'type="{type}"')
+        filter_parts.append(f'type="{sanitize_filter_value(type)}"')
     if subtype:
-        filter_parts.append(f'subtype="{subtype}"')
+        filter_parts.append(f'subtype="{sanitize_filter_value(subtype)}"')
     if status:
-        filter_parts.append(f'status="{status}"')
+        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     if search:
-        filter_parts.append(f'name~"{search}"')
+        filter_parts.append(f'name~"{sanitize_filter_value(search)}"')
     if slug:
-        filter_parts.append(f'slug="{slug}"')
+        filter_parts.append(f'slug="{sanitize_filter_value(slug)}"')
 
     result = await pb.list_records(
         collection=COLLECTION,
@@ -208,7 +215,7 @@ async def update_property(
     )
     await ctx.enforce_site(pb, existing["site_id"])
 
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if body.type is not None:
         updates["type"] = body.type
     if body.subtype is not None:
@@ -286,92 +293,26 @@ async def delete_property(
 # ------------------------------------------------------------------ #
 
 
-@public_property_router.get(
-    "/sites/{site_id}/properties",
-    response_model=PropertyListResponse,
-)
-async def list_public_properties(
-    request: Request,
-    site_id: str,
-    page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=100),
-    sort: str = Query("-ordering"),
-    type: Optional[str] = Query(None),
-    subtype: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    slug: Optional[str] = Query(None),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
-    settings: Settings = Depends(get_settings),
-) -> PropertyListResponse:
-    validate_id(site_id, "site_id")
-
-    admin_data = await pb.auth_with_password(
-        collection=settings.pocketbase_auth_collection,
-        identity=settings.pocketbase_admin_email,
-        password=settings.pocketbase_admin_password,
-    )
-
-    filter_parts: List[str] = [
-        f'site_id="{site_id}"',
-        SOFT_DELETE_FILTER,
-    ]
-    if status:
-        filter_parts.append(f'status="{status}"')
-    else:
-        filter_parts.append('status="published"')
-    if type:
-        filter_parts.append(f'type="{type}"')
-    if subtype:
-        filter_parts.append(f'subtype="{subtype}"')
-    if search:
-        filter_parts.append(f'name~"{search}"')
-    if slug:
-        filter_parts.append(f'slug="{slug}"')
-
-    result = await pb.list_records(
-        collection=COLLECTION,
-        token=admin_data["token"],
-        filter=build_filter(filter_parts),
-        sort=sort,
-        page=page,
-        per_page=per_page,
-    )
-    return PropertyListResponse(
-        items=[_record_to_response(r) for r in result.get("items", [])],
-        total=result.get("totalItems", 0),
-        page=result.get("page", page),
-        per_page=result.get("perPage", per_page),
-        total_pages=result.get("totalPages", 0),
-    )
-
-
 @public_property_router.post(
     "/sites/{site_id}/properties",
     response_model=PropertyResponse,
     status_code=201,
 )
 async def create_public_property(
-    request: Request,
     site_id: str,
     body: PropertyCreateRequest,
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
-    settings: Settings = Depends(get_settings),
 ) -> PropertyResponse:
     validate_id(site_id, "site_id")
     validate_id(body.property_id, "property_id")
-
-    admin_data = await pb.auth_with_password(
-        collection=settings.pocketbase_auth_collection,
-        identity=settings.pocketbase_admin_email,
-        password=settings.pocketbase_admin_password,
-    )
+    await ctx.enforce_site(pb, site_id)
 
     service = PropertyService()
     record = await service.create_property(
         pb=pb,
-        token=admin_data["token"],
-        user_id="",
+        token=ctx.token,
+        user_id=ctx.user_id,
         site_id=site_id,
         data={
             "property_id": body.property_id,
