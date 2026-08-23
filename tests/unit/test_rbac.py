@@ -7,6 +7,7 @@ from app.interface.rbac import (
     RoleGuard,
     UserRole,
     ROLE_PERMISSIONS,
+    check_role_permission,
     has_permission,
     can_delete_resources,
     can_manage_users,
@@ -183,3 +184,50 @@ class TestPermissionMatrix:
                 Permission.BUILDS_LIST,
             ):
                 assert perm not in guest_perms
+
+
+class TestCheckRolePermission:
+    def test_owner_can_assign_admin(self):
+        check_role_permission(UserRole.OWNER, UserRole.ADMIN)
+
+    def test_owner_can_assign_member(self):
+        check_role_permission(UserRole.OWNER, UserRole.MEMBER)
+
+    def test_owner_can_assign_guest(self):
+        check_role_permission(UserRole.OWNER, UserRole.GUEST)
+
+    def test_owner_cannot_assign_owner(self):
+        with pytest.raises(HTTPException) as exc_info:
+            check_role_permission(UserRole.OWNER, UserRole.OWNER)
+        assert exc_info.value.status_code == 403
+
+    def test_admin_can_assign_member(self):
+        check_role_permission(UserRole.ADMIN, UserRole.MEMBER)
+
+    def test_admin_can_assign_guest(self):
+        check_role_permission(UserRole.ADMIN, UserRole.GUEST)
+
+    def test_admin_cannot_assign_owner(self):
+        with pytest.raises(HTTPException) as exc_info:
+            check_role_permission(UserRole.ADMIN, UserRole.OWNER)
+        assert exc_info.value.status_code == 403
+
+    def test_admin_cannot_assign_admin(self):
+        with pytest.raises(HTTPException) as exc_info:
+            check_role_permission(UserRole.ADMIN, UserRole.ADMIN)
+        assert exc_info.value.status_code == 403
+
+    def test_member_cannot_assign_equal_or_higher_role(self):
+        for role in [UserRole.OWNER, UserRole.ADMIN, UserRole.MEMBER]:
+            with pytest.raises(HTTPException) as exc_info:
+                check_role_permission(UserRole.MEMBER, role)
+            assert exc_info.value.status_code == 403
+
+    def test_member_can_assign_guest(self):
+        check_role_permission(UserRole.MEMBER, UserRole.GUEST)
+
+    def test_guest_cannot_assign_any_role(self):
+        for role in UserRole:
+            with pytest.raises(HTTPException) as exc_info:
+                check_role_permission(UserRole.GUEST, role)
+            assert exc_info.value.status_code == 403

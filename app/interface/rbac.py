@@ -233,3 +233,26 @@ def can_delete_resources(auth: AuthContext) -> bool:
 
 def can_manage_users(auth: AuthContext) -> bool:
     return has_permission(auth, Permission.USERS_LIST)
+
+
+_ROLE_HIERARCHY: Dict[UserRole, int] = {
+    UserRole.OWNER: 0,
+    UserRole.ADMIN: 1,
+    UserRole.MEMBER: 2,
+    UserRole.GUEST: 3,
+}
+
+
+def check_role_permission(caller_role: UserRole, target_role: UserRole) -> None:
+    """Raise 403 if the caller is not allowed to assign the target role.
+
+    Rules:
+    - Each role can only assign roles strictly lower in the hierarchy.
+    - owner > admin > member > guest
+    - No one can assign the owner role (not even another owner).
+    """
+    if _ROLE_HIERARCHY[caller_role] >= _ROLE_HIERARCHY[target_role]:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot assign equal or higher role",
+        )
