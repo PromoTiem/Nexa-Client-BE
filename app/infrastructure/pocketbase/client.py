@@ -169,6 +169,28 @@ class PocketBaseClient:
         return self._handle_response(response, "auth_refresh", collection,
                                      not_found_detail="Auth collection not found")
 
+    async def auth_admin(
+        self,
+        email: str,
+        password: str,
+    ) -> Dict[str, Any]:
+        url = f"{self._base_url}/api/admins/auth-with-password"
+        payload = {"identity": email, "password": password}
+
+        async def _do_request() -> httpx.Response:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                return await client.post(url, json=payload)
+
+        response = await self._execute_with_retry(
+            self._make_retry("auth_admin", "_admins"), _do_request,
+        )
+        if response.status_code == 400:
+            raise HTTPException(status_code=401, detail="Invalid admin credentials")
+        return self._handle_response(
+            response, "auth_admin", "_admins", not_found_detail="Admin auth failed"
+        )
+
+
     async def list_records(
         self,
         collection: str,
