@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
@@ -11,6 +12,7 @@ from app.interface.dependencies import (
     get_tenant_context,
 )
 from app.interface.dto.user import (
+    UserChangePasswordRequest,
     UserCreateRequest,
     UserCreateResponse,
     UserListResponse,
@@ -37,6 +39,7 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         tenant_id=record.get("tenant_id", ""),
         role=record.get("role", "member"),
         status=record.get("status", "active"),
+        first_auth=record.get("first_auth", False),
         last_login=record.get("last_login", ""),
         metadata=record.get("metadata") or {},
         created=record.get("created", ""),
@@ -82,6 +85,41 @@ async def update_my_profile(
         token=ctx.token,
     )
     return _record_to_response(record)
+@router.post("/me/password", status_code=204)
+async def change_my_password(
+    body: UserChangePasswordRequest,
+    ctx: TenantContext = Depends(get_tenant_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    # 1. Verify old password
+    try:
+        await pb.auth_with_password(
+            collection=settings.pocketbase_auth_collection,
+            identity=ctx.auth.record["email"],
+            password=body.old_password,
+        )
+    except HTTPException:
+        raise HTTPException(status_code=400, detail="Invalid old password")
+
+    # 2. Update password and set first_auth to False
+    await pb.update_record(
+        collection=COLLECTION,
+        record_id=ctx.user_id,
+        data={
+            "password": body.password,
+            "passwordConfirm": body.password_confirm,
+            "first_auth": False,
+        },
+        token=ctx.token,
+    )
+
+    logger.info("user password changed", extra={"user_id": ctx.user_id})
+
+    return Response(status_code=204)
+
+
+
 
 
 # ── Tenant admin — user CRUD ────────────────────────────────────
@@ -157,6 +195,7 @@ async def create_user(
             "tenant_id": ctx.tenant_id,
             "role": body.role,
             "status": "active",
+            "first_auth": True,
             "metadata": body.metadata or {},
         },
         token=ctx.token,

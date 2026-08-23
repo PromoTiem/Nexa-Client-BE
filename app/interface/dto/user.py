@@ -32,6 +32,12 @@ class UserProfileUpdateRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class UserChangePasswordRequest(BaseModel):
+    old_password: str
+    password: str
+    password_confirm: str
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
@@ -41,6 +47,7 @@ class UserResponse(BaseModel):
     tenant_id: str
     role: UserRole
     status: UserStatus
+    first_auth: bool = False
     last_login: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     created: str
