@@ -286,66 +286,6 @@ async def delete_property(
 # ------------------------------------------------------------------ #
 
 
-@public_property_router.get(
-    "/sites/{site_id}/properties",
-    response_model=PropertyListResponse,
-)
-async def list_public_properties(
-    request: Request,
-    site_id: str,
-    page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=100),
-    sort: str = Query("-ordering"),
-    type: Optional[str] = Query(None),
-    subtype: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    slug: Optional[str] = Query(None),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
-    settings: Settings = Depends(get_settings),
-) -> PropertyListResponse:
-    validate_id(site_id, "site_id")
-
-    admin_data = await pb.auth_with_password(
-        collection=settings.pocketbase_auth_collection,
-        identity=settings.pocketbase_admin_email,
-        password=settings.pocketbase_admin_password,
-    )
-
-    filter_parts: List[str] = [
-        f'site_id="{site_id}"',
-        SOFT_DELETE_FILTER,
-    ]
-    if status:
-        filter_parts.append(f'status="{status}"')
-    else:
-        filter_parts.append('status="published"')
-    if type:
-        filter_parts.append(f'type="{type}"')
-    if subtype:
-        filter_parts.append(f'subtype="{subtype}"')
-    if search:
-        filter_parts.append(f'name~"{search}"')
-    if slug:
-        filter_parts.append(f'slug="{slug}"')
-
-    result = await pb.list_records(
-        collection=COLLECTION,
-        token=admin_data["token"],
-        filter=build_filter(filter_parts),
-        sort=sort,
-        page=page,
-        per_page=per_page,
-    )
-    return PropertyListResponse(
-        items=[_record_to_response(r) for r in result.get("items", [])],
-        total=result.get("totalItems", 0),
-        page=result.get("page", page),
-        per_page=result.get("perPage", per_page),
-        total_pages=result.get("totalPages", 0),
-    )
-
-
 @public_property_router.post(
     "/sites/{site_id}/properties",
     response_model=PropertyResponse,
