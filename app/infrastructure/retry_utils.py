@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional, Tuple, Type
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 from tenacity import (
@@ -14,7 +15,7 @@ from app.infrastructure.logging import get_logger
 
 logger = get_logger("retry_utils")
 
-HTTP_RETRY_EXCEPTIONS: Tuple[Type[Exception], ...] = (
+HTTP_RETRY_EXCEPTIONS: tuple[type[Exception], ...] = (
     httpx.TimeoutException,
     httpx.ConnectError,
     httpx.ReadError,
@@ -39,9 +40,9 @@ def make_retry_decorator(
     backoff: float,
     max_jitter: int,
     service: str,
-    retry_exceptions: Tuple[Type[Exception], ...] = HTTP_RETRY_EXCEPTIONS,
+    retry_exceptions: tuple[type[Exception], ...] = HTTP_RETRY_EXCEPTIONS,
     retry_on_result: bool = True,
-    extra_context: Optional[str] = None,
+    extra_context: str | None = None,
 ) -> Callable:
     retry_condition = retry_if_exception_type(retry_exceptions)
     if retry_on_result:

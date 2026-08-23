@@ -5,13 +5,14 @@ import pytest
 import respx
 from fastapi import HTTPException
 
-from app.infrastructure.pocketbase.client import PocketBaseClient, create_static_pb_client
+from app.infrastructure.pocketbase.client import (
+    PocketBaseClient,
+    create_static_pb_client,
+)
 
 PB_BASE = "https://test.example.com"
 COLLECTION = "users"
-AUTH_URL = (
-    f"{PB_BASE}/api/collections/{COLLECTION}/auth-with-password"
-)
+AUTH_URL = f"{PB_BASE}/api/collections/{COLLECTION}/auth-with-password"
 
 TEST_IDENTITY = "client@example.com"
 TEST_PASSWORD = "client123456"
@@ -71,9 +72,7 @@ class TestPocketBaseClientAuthWithPassword:
 
     @respx.mock
     async def test_collection_not_found_raises_404(self):
-        respx.post(AUTH_URL).mock(
-            return_value=httpx.Response(404)
-        )
+        respx.post(AUTH_URL).mock(return_value=httpx.Response(404))
         client = PocketBaseClient(base_url=PB_BASE)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -88,9 +87,7 @@ class TestPocketBaseClientAuthWithPassword:
 
     @respx.mock
     async def test_server_error_propagates_status_code(self):
-        respx.post(AUTH_URL).mock(
-            return_value=httpx.Response(500)
-        )
+        respx.post(AUTH_URL).mock(return_value=httpx.Response(500))
         client = PocketBaseClient(base_url=PB_BASE, max_retries=1)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -153,9 +150,7 @@ class TestPocketBaseClientAuthWithPassword:
         assert result["token"] == MOCK_PB_PAYLOAD["token"]
 
 
-REFRESH_URL = (
-    f"{PB_BASE}/api/collections/{COLLECTION}/auth-refresh"
-)
+REFRESH_URL = f"{PB_BASE}/api/collections/{COLLECTION}/auth-refresh"
 SAMPLE_TOKEN = "eyJhbGciOiJIUzI1NiJ9.test_token"
 
 
@@ -192,9 +187,7 @@ class TestPocketBaseClientAuthRefresh:
 
     @respx.mock
     async def test_invalid_token_raises_401(self):
-        respx.post(REFRESH_URL).mock(
-            return_value=httpx.Response(401)
-        )
+        respx.post(REFRESH_URL).mock(return_value=httpx.Response(401))
         client = PocketBaseClient(base_url=PB_BASE)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -208,9 +201,7 @@ class TestPocketBaseClientAuthRefresh:
 
     @respx.mock
     async def test_collection_not_found_raises_404(self):
-        respx.post(REFRESH_URL).mock(
-            return_value=httpx.Response(404)
-        )
+        respx.post(REFRESH_URL).mock(return_value=httpx.Response(404))
         client = PocketBaseClient(base_url=PB_BASE)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -224,9 +215,7 @@ class TestPocketBaseClientAuthRefresh:
 
     @respx.mock
     async def test_server_error_propagates_status_code(self):
-        respx.post(REFRESH_URL).mock(
-            return_value=httpx.Response(500)
-        )
+        respx.post(REFRESH_URL).mock(return_value=httpx.Response(500))
         client = PocketBaseClient(base_url=PB_BASE, max_retries=1)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -308,9 +297,7 @@ class TestPocketBaseClientListRecords:
         )
         client = PocketBaseClient(base_url=PB_BASE)
 
-        await client.list_records(
-            collection=TENANTS_COLLECTION, token=SAMPLE_TOKEN
-        )
+        await client.list_records(collection=TENANTS_COLLECTION, token=SAMPLE_TOKEN)
 
         assert route.calls.last.request.headers["Authorization"] == SAMPLE_TOKEN
 
@@ -320,9 +307,7 @@ class TestPocketBaseClientListRecords:
         client = PocketBaseClient(base_url=PB_BASE)
 
         with pytest.raises(HTTPException) as exc_info:
-            await client.list_records(
-                collection=TENANTS_COLLECTION, token="bad.token"
-            )
+            await client.list_records(collection=TENANTS_COLLECTION, token="bad.token")
 
         assert exc_info.value.status_code == 401
 
@@ -332,9 +317,7 @@ class TestPocketBaseClientListRecords:
         client = PocketBaseClient(base_url=PB_BASE)
 
         with pytest.raises(HTTPException) as exc_info:
-            await client.list_records(
-                collection=TENANTS_COLLECTION, token=SAMPLE_TOKEN
-            )
+            await client.list_records(collection=TENANTS_COLLECTION, token=SAMPLE_TOKEN)
 
         assert exc_info.value.status_code == 404
 
@@ -383,8 +366,13 @@ class TestPocketBaseClientFindOneByFilter:
         respx.get(LIST_URL).mock(
             return_value=httpx.Response(
                 200,
-                json={"page": 1, "perPage": 1, "totalItems": 0,
-                      "totalPages": 0, "items": []},
+                json={
+                    "page": 1,
+                    "perPage": 1,
+                    "totalItems": 0,
+                    "totalPages": 0,
+                    "items": [],
+                },
             )
         )
         client = PocketBaseClient(base_url=PB_BASE)
@@ -424,7 +412,9 @@ class TestPocketBaseClientCreateRecord:
 
         payload = {"tenant_id": "tenant_abc", "name": "My Tenant"}
         await client.create_record(
-            collection=TENANTS_COLLECTION, data=payload, token=SAMPLE_TOKEN,
+            collection=TENANTS_COLLECTION,
+            data=payload,
+            token=SAMPLE_TOKEN,
             user_id="user_001",
         )
 
@@ -439,9 +429,7 @@ class TestPocketBaseClientCreateRecord:
     @respx.mock
     async def test_validation_error_raises_400(self):
         respx.post(LIST_URL).mock(
-            return_value=httpx.Response(
-                400, json={"message": "tenant_id is required"}
-            )
+            return_value=httpx.Response(400, json={"message": "tenant_id is required"})
         )
         client = PocketBaseClient(base_url=PB_BASE)
 
@@ -470,9 +458,7 @@ class TestPocketBaseClientUpdateRecord:
     @respx.mock
     async def test_success_returns_updated_record(self):
         updated = {**MOCK_TENANT_RECORD, "name": "Updated Tenant"}
-        respx.patch(RECORD_URL).mock(
-            return_value=httpx.Response(200, json=updated)
-        )
+        respx.patch(RECORD_URL).mock(return_value=httpx.Response(200, json=updated))
         client = PocketBaseClient(base_url=PB_BASE)
 
         result = await client.update_record(
@@ -581,9 +567,7 @@ class TestPocketBaseClientRetry:
             httpx.Response(500),
             httpx.Response(200, json=MOCK_PB_PAYLOAD),
         ]
-        client = PocketBaseClient(
-            base_url=PB_BASE, max_retries=3, retry_backoff=0.01
-        )
+        client = PocketBaseClient(base_url=PB_BASE, max_retries=3, retry_backoff=0.01)
 
         result = await client.auth_with_password(
             collection=COLLECTION,
@@ -602,9 +586,7 @@ class TestPocketBaseClientRetry:
             httpx.Response(500),
             httpx.Response(500),
         ]
-        client = PocketBaseClient(
-            base_url=PB_BASE, max_retries=3, retry_backoff=0.01
-        )
+        client = PocketBaseClient(base_url=PB_BASE, max_retries=3, retry_backoff=0.01)
 
         with pytest.raises(HTTPException) as exc_info:
             await client.auth_with_password(
@@ -620,9 +602,7 @@ class TestPocketBaseClientRetry:
     async def test_no_retry_on_4xx(self):
         route = respx.post(AUTH_URL)
         route.mock(return_value=httpx.Response(400))
-        client = PocketBaseClient(
-            base_url=PB_BASE, max_retries=3, retry_backoff=0.01
-        )
+        client = PocketBaseClient(base_url=PB_BASE, max_retries=3, retry_backoff=0.01)
 
         with pytest.raises(HTTPException) as exc_info:
             await client.auth_with_password(
@@ -641,9 +621,7 @@ class TestPocketBaseClientRetry:
             httpx.ReadTimeout("Connection timed out"),
             httpx.Response(200, json=MOCK_PB_PAYLOAD),
         ]
-        client = PocketBaseClient(
-            base_url=PB_BASE, max_retries=3, retry_backoff=0.01
-        )
+        client = PocketBaseClient(base_url=PB_BASE, max_retries=3, retry_backoff=0.01)
 
         result = await client.auth_with_password(
             collection=COLLECTION,
@@ -666,18 +644,14 @@ class TestPocketBaseClientAuthHeaders:
         assert "No token provided" in exc_info.value.detail
 
     def test_uses_static_token_when_no_token_provided(self):
-        client = PocketBaseClient(
-            base_url=PB_BASE, static_token="static.val"
-        )
+        client = PocketBaseClient(base_url=PB_BASE, static_token="static.val")
 
         headers = client._get_auth_headers(token=None)
 
         assert headers == {"x_api_be_token": "static.val"}
 
     def test_uses_explicit_token_over_static_token(self):
-        client = PocketBaseClient(
-            base_url=PB_BASE, static_token="static.val"
-        )
+        client = PocketBaseClient(base_url=PB_BASE, static_token="static.val")
 
         headers = client._get_auth_headers(token="bearer mytoken")
 
@@ -711,5 +685,7 @@ class TestCreateStaticPbClient:
             pocketbase_max_retries = 2
             pocketbase_retry_backoff = 0.1
 
-        client = create_static_pb_client(static_token="settings_token", settings=FakeSettings())
+        client = create_static_pb_client(
+            static_token="settings_token", settings=FakeSettings()
+        )
         assert isinstance(client, PocketBaseClient)

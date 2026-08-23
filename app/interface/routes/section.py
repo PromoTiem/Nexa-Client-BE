@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,9 +9,9 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
+from app.interface.dto.section import SectionListResponse, SectionResponse
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import validate_id
-from app.interface.dto.section import SectionResponse, SectionListResponse
 
 COLLECTION = "sections"
 
@@ -19,7 +19,7 @@ router = APIRouter()
 logger = get_logger("section_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> SectionResponse:
+def _record_to_response(record: dict[str, Any]) -> SectionResponse:
     return SectionResponse(
         id=record["id"],
         section_id=record["section_id"],

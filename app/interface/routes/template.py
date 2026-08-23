@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,9 +9,13 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
+from app.interface.dto.template import TemplateListResponse, TemplateResponse
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import validate_id
-from app.interface.dto.template import TemplateResponse, TemplateListResponse
+from app.interface.route_helpers import (
+    sanitize_filter_value,
+    validate_id,
+    validate_sort,
+)
 
 COLLECTION = "templates"
 
@@ -19,7 +23,7 @@ router = APIRouter()
 logger = get_logger("template_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> TemplateResponse:
+def _record_to_response(record: dict[str, Any]) -> TemplateResponse:
     return TemplateResponse(
         id=record["id"],
         template_id=record["template_id"],
@@ -44,9 +48,9 @@ async def _resolve_batch(
     token: str,
     collection: str,
     id_field: str,
-    ids: Optional[List[str]],
-    warnings: List[str],
-) -> List[Dict[str, Any]]:
+    ids: list[str] | None,
+    warnings: list[str],
+) -> list[dict[str, Any]]:
     if not ids:
         return []
     filter_expr = " || ".join(f'{id_field}="{id}"' for id in ids)
@@ -63,9 +67,9 @@ async def _resolve_batch(
 async def _resolve_style(
     pb: PocketBaseClient,
     token: str,
-    style_id: Optional[str],
-    warnings: List[str],
-) -> Optional[Dict[str, Any]]:
+    style_id: str | None,
+    warnings: list[str],
+) -> dict[str, Any] | None:
     if not style_id:
         return None
     try:
@@ -84,23 +88,29 @@ async def list_templates(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    category: Optional[str] = Query(None),
-    tags: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    tags: str | None = Query(None),
+    search: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateListResponse:
     enforce_permission(ctx.auth, Permission.TEMPLATES_LIST)
-    filter_parts: List[str] = []
+    sort = validate_sort(
+        sort, allowed_fields=["created_at", "updated_at", "name", "category"]
+    )
+    filter_parts: list[str] = []
     if category:
-        filter_parts.append(f'category="{category}"')
+        filter_parts.append(f'category="{sanitize_filter_value(category)}"')
     if tags:
         for tag in tags.split(","):
             tag = tag.strip()
             if tag:
-                filter_parts.append(f'~tags~"{tag}"')
+                filter_parts.append(f'~tags~"{sanitize_filter_value(tag)}"')
     if search:
-        filter_parts.append(f'(name~"{search}" || description~"{search}")')
+        sanitized_search = sanitize_filter_value(search)
+        filter_parts.append(
+            f'(name~"{sanitized_search}" || description~"{sanitized_search}")'
+        )
 
     filter_expr = " && ".join(filter_parts) if filter_parts else None
 
@@ -125,7 +135,7 @@ async def list_templates(
 @router.get("/{template_id}", response_model=TemplateResponse)
 async def get_template(
     template_id: str,
-    expand: Optional[str] = Query(None),
+    expand: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateResponse:
@@ -141,11 +151,17 @@ async def get_template(
     if not expand:
         return resp
 
-    expand_set = {"style", "pages", "sections", "blocks"} if expand == "true" else set(expand.split(","))
-    warnings: List[str] = list(resp.warnings) if resp.warnings else []
+    expand_set = (
+        {"style", "pages", "sections", "blocks"}
+        if expand == "true"
+        else set(expand.split(","))
+    )
+    warnings: list[str] = list(resp.warnings) if resp.warnings else []
 
     if "style" in expand_set:
-        resp.expanded_style = await _resolve_style(pb, ctx.token, resp.style_id, warnings)
+        resp.expanded_style = await _resolve_style(
+            pb, ctx.token, resp.style_id, warnings
+        )
 
     if "pages" in expand_set:
         resp.expanded_pages = await _resolve_batch(

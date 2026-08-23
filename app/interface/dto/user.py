@@ -1,6 +1,6 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.interface.dto.common import PaginatedResponse
 
@@ -9,40 +9,40 @@ UserStatus = Literal["active", "inactive", "pending"]
 
 
 class UserCreateRequest(BaseModel):
-    email: str
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    tenant_id: Optional[str] = None
+    email: EmailStr
+    name: str | None = None
+    phone: str | None = None
+    tenant_id: str | None = None
     role: UserRole = "member"
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 class UserUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    role: Optional[UserRole] = None
-    status: Optional[UserStatus] = None
-    metadata: Optional[Dict[str, Any]] = None
+    name: str | None = None
+    phone: str | None = None
+    role: UserRole | None = None
+    status: UserStatus | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class UserProfileUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    avatar: Optional[str] = None
-    phone: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    name: str | None = None
+    avatar: str | None = None
+    phone: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class UserResponse(BaseModel):
     id: str
     email: str
-    name: Optional[str] = None
-    avatar: Optional[str] = None
-    phone: Optional[str] = None
+    name: str | None = None
+    avatar: str | None = None
+    phone: str | None = None
     tenant_id: str
     role: UserRole
     status: UserStatus
-    last_login: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    last_login: str | None = None
+    metadata: dict[str, Any] | None = None
     created: str
     updated: str
 

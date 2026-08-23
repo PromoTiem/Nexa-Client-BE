@@ -1,17 +1,18 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
 from app.interface.route_helpers import (
-    validate_id,
-    build_filter,
     auth_tenant,
-    ensure_tenant_owns,
-    ensure_site_tenant,
+    build_filter,
     ensure_file_tenant,
+    ensure_site_tenant,
+    ensure_tenant_owns,
     public_id_to_record_id,
     record_id_to_public_id,
+    validate_id,
 )
 
 
@@ -98,6 +99,7 @@ class TestEnsureSiteTenant:
             return "tenant_abc"
 
         import app.interface.route_helpers as rh
+
         original = rh.record_id_to_public_id
         rh.record_id_to_public_id = mock_record_to_public
         try:
@@ -117,6 +119,7 @@ class TestEnsureSiteTenant:
             return "tenant_xyz"
 
         import app.interface.route_helpers as rh
+
         original = rh.record_id_to_public_id
         rh.record_id_to_public_id = mock_record_to_public
         try:
@@ -149,6 +152,7 @@ class TestEnsureFileTenant:
         record = {"site_id": "site_1"}
 
         import app.interface.route_helpers as rh
+
         original = rh.ensure_site_tenant
         rh.ensure_site_tenant = AsyncMock()
         try:
@@ -185,9 +189,7 @@ class TestRecordIdToPublicId:
     @pytest.mark.asyncio
     async def test_none_record_id_returns_none(self):
         pb = AsyncMock()
-        result = await record_id_to_public_id(
-            pb, "tenants", "tenant_id", None, "token"
-        )
+        result = await record_id_to_public_id(pb, "tenants", "tenant_id", None, "token")
         assert result is None
 
     @pytest.mark.asyncio

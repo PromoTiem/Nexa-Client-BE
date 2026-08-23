@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, FrozenSet, Set
 
 from fastapi import Depends, HTTPException
 
@@ -49,97 +48,105 @@ class Permission(str, Enum):
     STORAGE_ACCESS = "storage:access"
 
 
-ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
-    UserRole.OWNER: frozenset({
-        Permission.SITES_LIST,
-        Permission.SITES_CREATE,
-        Permission.SITES_UPDATE,
-        Permission.SITES_DELETE,
-        Permission.PROPERTIES_LIST,
-        Permission.PROPERTIES_CREATE,
-        Permission.PROPERTIES_UPDATE,
-        Permission.PROPERTIES_DELETE,
-        Permission.TEMPLATES_LIST,
-        Permission.STYLES_LIST,
-        Permission.BLOCKS_LIST,
-        Permission.PAGES_LIST,
-        Permission.SECTIONS_LIST,
-        Permission.USERS_LIST,
-        Permission.USERS_CREATE,
-        Permission.USERS_UPDATE,
-        Permission.USERS_DELETE,
-        Permission.BUILDS_LIST,
-        Permission.BUILDS_CREATE,
-        Permission.BUILDS_DELETE,
-        Permission.SERVE_ACCESS,
-        Permission.MEDIA_UPLOAD,
-        Permission.MEDIA_LIST,
-        Permission.MEDIA_DELETE,
-        Permission.STORAGE_ACCESS,
-    }),
-    UserRole.ADMIN: frozenset({
-        Permission.SITES_LIST,
-        Permission.SITES_CREATE,
-        Permission.SITES_UPDATE,
-        Permission.SITES_DELETE,
-        Permission.PROPERTIES_LIST,
-        Permission.PROPERTIES_CREATE,
-        Permission.PROPERTIES_UPDATE,
-        Permission.PROPERTIES_DELETE,
-        Permission.TEMPLATES_LIST,
-        Permission.STYLES_LIST,
-        Permission.BLOCKS_LIST,
-        Permission.PAGES_LIST,
-        Permission.SECTIONS_LIST,
-        Permission.USERS_LIST,
-        Permission.USERS_CREATE,
-        Permission.USERS_UPDATE,
-        Permission.USERS_DELETE,
-        Permission.BUILDS_LIST,
-        Permission.BUILDS_CREATE,
-        Permission.BUILDS_DELETE,
-        Permission.SERVE_ACCESS,
-        Permission.MEDIA_UPLOAD,
-        Permission.MEDIA_LIST,
-        Permission.MEDIA_DELETE,
-        Permission.STORAGE_ACCESS,
-    }),
-    UserRole.MEMBER: frozenset({
-        Permission.SITES_LIST,
-        Permission.SITES_CREATE,
-        Permission.SITES_UPDATE,
-        Permission.PROPERTIES_LIST,
-        Permission.PROPERTIES_CREATE,
-        Permission.PROPERTIES_UPDATE,
-        Permission.TEMPLATES_LIST,
-        Permission.STYLES_LIST,
-        Permission.BLOCKS_LIST,
-        Permission.PAGES_LIST,
-        Permission.SECTIONS_LIST,
-        Permission.BUILDS_LIST,
-        Permission.BUILDS_CREATE,
-        Permission.SERVE_ACCESS,
-        Permission.MEDIA_UPLOAD,
-        Permission.MEDIA_LIST,
-        Permission.STORAGE_ACCESS,
-    }),
-    UserRole.GUEST: frozenset({
-        Permission.SITES_LIST,
-        Permission.PROPERTIES_LIST,
-        Permission.TEMPLATES_LIST,
-        Permission.STYLES_LIST,
-        Permission.BLOCKS_LIST,
-        Permission.PAGES_LIST,
-        Permission.SECTIONS_LIST,
-        Permission.BUILDS_LIST,
-        Permission.MEDIA_LIST,
-    }),
+ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
+    UserRole.OWNER: frozenset(
+        {
+            Permission.SITES_LIST,
+            Permission.SITES_CREATE,
+            Permission.SITES_UPDATE,
+            Permission.SITES_DELETE,
+            Permission.PROPERTIES_LIST,
+            Permission.PROPERTIES_CREATE,
+            Permission.PROPERTIES_UPDATE,
+            Permission.PROPERTIES_DELETE,
+            Permission.TEMPLATES_LIST,
+            Permission.STYLES_LIST,
+            Permission.BLOCKS_LIST,
+            Permission.PAGES_LIST,
+            Permission.SECTIONS_LIST,
+            Permission.USERS_LIST,
+            Permission.USERS_CREATE,
+            Permission.USERS_UPDATE,
+            Permission.USERS_DELETE,
+            Permission.BUILDS_LIST,
+            Permission.BUILDS_CREATE,
+            Permission.BUILDS_DELETE,
+            Permission.SERVE_ACCESS,
+            Permission.MEDIA_UPLOAD,
+            Permission.MEDIA_LIST,
+            Permission.MEDIA_DELETE,
+            Permission.STORAGE_ACCESS,
+        }
+    ),
+    UserRole.ADMIN: frozenset(
+        {
+            Permission.SITES_LIST,
+            Permission.SITES_CREATE,
+            Permission.SITES_UPDATE,
+            Permission.SITES_DELETE,
+            Permission.PROPERTIES_LIST,
+            Permission.PROPERTIES_CREATE,
+            Permission.PROPERTIES_UPDATE,
+            Permission.PROPERTIES_DELETE,
+            Permission.TEMPLATES_LIST,
+            Permission.STYLES_LIST,
+            Permission.BLOCKS_LIST,
+            Permission.PAGES_LIST,
+            Permission.SECTIONS_LIST,
+            Permission.USERS_LIST,
+            Permission.USERS_CREATE,
+            Permission.USERS_UPDATE,
+            Permission.USERS_DELETE,
+            Permission.BUILDS_LIST,
+            Permission.BUILDS_CREATE,
+            Permission.BUILDS_DELETE,
+            Permission.SERVE_ACCESS,
+            Permission.MEDIA_UPLOAD,
+            Permission.MEDIA_LIST,
+            Permission.MEDIA_DELETE,
+            Permission.STORAGE_ACCESS,
+        }
+    ),
+    UserRole.MEMBER: frozenset(
+        {
+            Permission.SITES_LIST,
+            Permission.SITES_CREATE,
+            Permission.SITES_UPDATE,
+            Permission.PROPERTIES_LIST,
+            Permission.PROPERTIES_CREATE,
+            Permission.PROPERTIES_UPDATE,
+            Permission.TEMPLATES_LIST,
+            Permission.STYLES_LIST,
+            Permission.BLOCKS_LIST,
+            Permission.PAGES_LIST,
+            Permission.SECTIONS_LIST,
+            Permission.BUILDS_LIST,
+            Permission.BUILDS_CREATE,
+            Permission.SERVE_ACCESS,
+            Permission.MEDIA_UPLOAD,
+            Permission.MEDIA_LIST,
+            Permission.STORAGE_ACCESS,
+        }
+    ),
+    UserRole.GUEST: frozenset(
+        {
+            Permission.SITES_LIST,
+            Permission.PROPERTIES_LIST,
+            Permission.TEMPLATES_LIST,
+            Permission.STYLES_LIST,
+            Permission.BLOCKS_LIST,
+            Permission.PAGES_LIST,
+            Permission.SECTIONS_LIST,
+            Permission.BUILDS_LIST,
+            Permission.MEDIA_LIST,
+        }
+    ),
 }
 
 
 @dataclass
 class RoleGuard:
-    allowed_roles: FrozenSet[UserRole]
+    allowed_roles: frozenset[UserRole]
     required_permission: Permission = field(default=None)
 
     def __post_init__(self):
@@ -182,13 +189,12 @@ def require_role(*roles: str):
     return _checker
 
 
-def require_permission(permission: Permission, *, roles: Set[UserRole] = None):
+def require_permission(permission: Permission, *, roles: set[UserRole] = None):
     if roles is not None:
         allowed = frozenset(roles)
     else:
         allowed = frozenset(
-            role for role, perms in ROLE_PERMISSIONS.items()
-            if permission in perms
+            role for role, perms in ROLE_PERMISSIONS.items() if permission in perms
         )
     guard = RoleGuard(allowed_roles=allowed, required_permission=permission)
 
@@ -201,6 +207,7 @@ def require_permission(permission: Permission, *, roles: Set[UserRole] = None):
 
 def _get_auth():
     from app.interface.dependencies import get_auth_context
+
     return get_auth_context
 
 

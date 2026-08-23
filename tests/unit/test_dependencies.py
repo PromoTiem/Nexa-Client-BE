@@ -1,11 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import HTTPException
 
+from app.config import Settings
 from app.interface.auth_models import AuthContext
 from app.interface.dependencies import get_auth_context
-from app.config import Settings
-
 
 MOCK_RECORD = {
     "id": "user_123",
@@ -26,9 +26,7 @@ class TestGetAuthContext:
         mock_pb = AsyncMock()
         mock_pb.auth_refresh = AsyncMock(return_value=MOCK_AUTH_DATA)
 
-        mock_credentials = type(
-            "Creds", (), {"credentials": "valid.token.here"}
-        )()
+        mock_credentials = type("Creds", (), {"credentials": "valid.token.here"})()
 
         settings = Settings()
 
@@ -68,9 +66,7 @@ class TestGetAuthContext:
             }
         )
 
-        mock_credentials = type(
-            "Creds", (), {"credentials": "valid.token.here"}
-        )()
+        mock_credentials = type("Creds", (), {"credentials": "valid.token.here"})()
 
         settings = Settings()
 
@@ -91,9 +87,7 @@ class TestGetAuthContext:
             side_effect=HTTPException(status_code=401, detail="Invalid token")
         )
 
-        mock_credentials = type(
-            "Creds", (), {"credentials": "expired.token"}
-        )()
+        mock_credentials = type("Creds", (), {"credentials": "expired.token"})()
 
         settings = Settings()
 

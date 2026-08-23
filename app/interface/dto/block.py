@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -10,13 +10,13 @@ class BlockResponse(BaseModel):
     block_id: str
     name: str
     type: str
-    order_index: Optional[int] = None
-    props: Optional[Dict[str, Any]] = None
-    style: Optional[Dict[str, Any]] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    created_by: Optional[str] = None
-    updated_by: Optional[str] = None
+    order_index: int | None = None
+    props: dict[str, Any] | None = None
+    style: dict[str, Any] | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
 
 
 BlockListResponse = PaginatedResponse[BlockResponse]

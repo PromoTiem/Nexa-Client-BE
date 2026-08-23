@@ -3,15 +3,14 @@ from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
 from app.interface.rbac import (
+    ROLE_PERMISSIONS,
     Permission,
     RoleGuard,
     UserRole,
-    ROLE_PERMISSIONS,
-    has_permission,
     can_delete_resources,
     can_manage_users,
+    has_permission,
 )
-
 
 MOCK_OWNER = AuthContext(
     token="owner_token",

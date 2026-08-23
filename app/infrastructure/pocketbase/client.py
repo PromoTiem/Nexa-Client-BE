@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
@@ -11,7 +12,7 @@ logger = get_logger("pocketbase")
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _log_upstream_error(op: str, collection: str, status: int) -> None:
@@ -46,17 +47,15 @@ class PocketBaseClient:
         timeout: float = 10.0,
         max_retries: int = 3,
         retry_backoff: float = 0.5,
-        static_token: Optional[str] = None,
+        static_token: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._timeout = httpx.Timeout(
-            connect=5.0, read=timeout, write=10.0, pool=5.0
-        )
+        self._timeout = httpx.Timeout(connect=5.0, read=timeout, write=10.0, pool=5.0)
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._static_token = static_token
 
-    def _get_auth_headers(self, token: Optional[str] = None) -> Dict[str, str]:
+    def _get_auth_headers(self, token: str | None = None) -> dict[str, str]:
         if token:
             return {"Authorization": token}
         if self._static_token:
@@ -90,7 +89,7 @@ class PocketBaseClient:
         *,
         allow_400: bool = False,
         not_found_detail: str = "Record not found",
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Handle PocketBase HTTP response, raising appropriate exceptions on error."""
         if response.is_success:
             if response.status_code == 204:
@@ -115,13 +114,10 @@ class PocketBaseClient:
         collection: str,
         identity: str,
         password: str,
-        identity_field: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        url = (
-            f"{self._base_url}/api/collections/{collection}"
-            "/auth-with-password"
-        )
-        payload: Dict[str, Any] = {"identity": identity, "password": password}
+        identity_field: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}/api/collections/{collection}/auth-with-password"
+        payload: dict[str, Any] = {"identity": identity, "password": password}
         if identity_field:
             payload["identityField"] = identity_field
 
@@ -130,22 +126,21 @@ class PocketBaseClient:
                 return await client.post(url, json=payload)
 
         response = await self._execute_with_retry(
-            self._make_retry("auth", collection), _do_request,
+            self._make_retry("auth", collection),
+            _do_request,
         )
         if response.status_code == 400:
             raise HTTPException(status_code=401, detail="Invalid credentials")
-        return self._handle_response(response, "auth", collection,
-                                     not_found_detail="Auth collection not found")
+        return self._handle_response(
+            response, "auth", collection, not_found_detail="Auth collection not found"
+        )
 
     async def auth_refresh(
         self,
         collection: str,
         token: str,
-    ) -> Dict[str, Any]:
-        url = (
-            f"{self._base_url}/api/collections/{collection}"
-            "/auth-refresh"
-        )
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}/api/collections/{collection}/auth-refresh"
 
         async def _do_request() -> httpx.Response:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -164,23 +159,28 @@ class PocketBaseClient:
         )
         if response.status_code == 401:
             raise HTTPException(
-                status_code=401, detail="Invalid or expired token",
+                status_code=401,
+                detail="Invalid or expired token",
             )
-        return self._handle_response(response, "auth_refresh", collection,
-                                     not_found_detail="Auth collection not found")
+        return self._handle_response(
+            response,
+            "auth_refresh",
+            collection,
+            not_found_detail="Auth collection not found",
+        )
 
     async def list_records(
         self,
         collection: str,
-        token: Optional[str] = None,
-        filter: Optional[str] = None,
-        sort: Optional[str] = None,
+        token: str | None = None,
+        filter: str | None = None,
+        sort: str | None = None,
         page: int = 1,
         per_page: int = 50,
-        expand: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        expand: str | None = None,
+    ) -> dict[str, Any]:
         url = f"{self._base_url}/api/collections/{collection}/records"
-        params: Dict[str, Any] = {"page": page, "perPage": per_page}
+        params: dict[str, Any] = {"page": page, "perPage": per_page}
         if filter:
             params["filter"] = filter
         if sort:
@@ -199,20 +199,22 @@ class PocketBaseClient:
             _do_request,
         )
         return self._handle_response(
-            response, "list", collection,
+            response,
+            "list",
+            collection,
             not_found_detail=f"Collection '{collection}' not found",
         )
 
     async def collection_list(
         self,
         collection: str,
-        token: Optional[str] = None,
-        filter_expr: Optional[str] = None,
-        sort: Optional[str] = None,
+        token: str | None = None,
+        filter_expr: str | None = None,
+        sort: str | None = None,
         page: int = 1,
         per_page: int = 50,
-        expand: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        expand: str | None = None,
+    ) -> dict[str, Any]:
         """Alias for list_records using filter_expr parameter name."""
         return await self.list_records(
             collection=collection,
@@ -228,9 +230,9 @@ class PocketBaseClient:
         self,
         collection: str,
         filter_expr: str,
-        token: Optional[str] = None,
-        expand: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        token: str | None = None,
+        expand: str | None = None,
+    ) -> dict[str, Any]:
         result = await self.list_records(
             collection=collection,
             token=token,
@@ -239,7 +241,7 @@ class PocketBaseClient:
             per_page=1,
             expand=expand,
         )
-        items: List[Dict[str, Any]] = result.get("items", [])
+        items: list[dict[str, Any]] = result.get("items", [])
         if not items:
             raise HTTPException(status_code=404, detail="Record not found")
         return items[0]
@@ -248,18 +250,13 @@ class PocketBaseClient:
         self,
         collection: str,
         record_id: str,
-        token: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        url = (
-            f"{self._base_url}/api/collections/{collection}"
-            f"/records/{record_id}"
-        )
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}/api/collections/{collection}/records/{record_id}"
 
         async def _do_request() -> httpx.Response:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                return await client.get(
-                    url, headers=self._get_auth_headers(token)
-                )
+                return await client.get(url, headers=self._get_auth_headers(token))
 
         response = await self._execute_with_retry(
             self._make_retry("get_by_id", collection),
@@ -270,10 +267,10 @@ class PocketBaseClient:
     async def create_record(
         self,
         collection: str,
-        data: Dict[str, Any],
-        token: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        data: dict[str, Any],
+        token: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         url = f"{self._base_url}/api/collections/{collection}/records"
         now = _now_iso()
         payload = dict(data)
@@ -299,14 +296,11 @@ class PocketBaseClient:
         self,
         collection: str,
         record_id: str,
-        data: Dict[str, Any],
-        token: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        url = (
-            f"{self._base_url}/api/collections/{collection}"
-            f"/records/{record_id}"
-        )
+        data: dict[str, Any],
+        token: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}/api/collections/{collection}/records/{record_id}"
         payload = dict(data)
         payload["updated_at"] = _now_iso()
         if user_id:
@@ -328,18 +322,13 @@ class PocketBaseClient:
         self,
         collection: str,
         record_id: str,
-        token: Optional[str] = None,
+        token: str | None = None,
     ) -> None:
-        url = (
-            f"{self._base_url}/api/collections/{collection}"
-            f"/records/{record_id}"
-        )
+        url = f"{self._base_url}/api/collections/{collection}/records/{record_id}"
 
         async def _do_request() -> httpx.Response:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                return await client.delete(
-                    url, headers=self._get_auth_headers(token)
-                )
+                return await client.delete(url, headers=self._get_auth_headers(token))
 
         response = await self._execute_with_retry(
             self._make_retry("delete", collection),
@@ -349,8 +338,8 @@ class PocketBaseClient:
 
 
 def create_static_pb_client(
-    base_url: Optional[str] = None,
-    static_token: Optional[str] = None,
+    base_url: str | None = None,
+    static_token: str | None = None,
     timeout: float = 10.0,
     max_retries: int = 3,
     retry_backoff: float = 0.5,

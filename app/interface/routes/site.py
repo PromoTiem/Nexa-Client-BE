@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -9,8 +9,8 @@ from app.application.services.bucket_resolver import (
 )
 from app.application.services.site_deployer import (
     cleanup_all_domains,
-    remove_domain_from_pages,
     remove_dns_for_domain,
+    remove_domain_from_pages,
     sanitize_project_name,
 )
 from app.config import get_settings
@@ -25,18 +25,19 @@ from app.interface.dependencies import (
     get_storage_client,
     get_tenant_context,
 )
+from app.interface.dto.site import (
+    SiteCreateRequest,
+    SiteListResponse,
+    SiteResponse,
+    SiteUpdateRequest,
+)
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     map_site_record,
     public_id_to_record_id,
     record_id_to_public_id,
     validate_id,
-)
-from app.interface.dto.site import (
-    SiteCreateRequest,
-    SiteListResponse,
-    SiteResponse,
-    SiteUpdateRequest,
+    validate_sort,
 )
 
 COLLECTION = "sites"
@@ -45,7 +46,7 @@ router = APIRouter()
 logger = get_logger("site_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> SiteResponse:
+def _record_to_response(record: dict[str, Any]) -> SiteResponse:
     return SiteResponse(
         id=record["id"],
         site_id=record["site_id"],
@@ -73,11 +74,14 @@ async def list_sites(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    tenant_id: Optional[str] = Query(None),
+    tenant_id: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteListResponse:
     enforce_permission(ctx.auth, Permission.SITES_LIST)
+    sort = validate_sort(
+        sort, allowed_fields=["created_at", "updated_at", "name", "status"]
+    )
     effective_tenant = ctx.tenant_id or tenant_id
     filter_expr = None
     if effective_tenant:
@@ -94,7 +98,11 @@ async def list_sites(
         per_page=per_page,
     )
     items = [
-        _record_to_response(await map_site_record(r, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")))
+        _record_to_response(
+            await map_site_record(
+                r, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+            )
+        )
         for r in result.get("items", [])
     ]
     return SiteListResponse(
@@ -117,9 +125,7 @@ async def create_site(
     validate_id(body.site_id, "site_id")
     tenant = ctx.tenant_id
     if not tenant:
-        raise HTTPException(
-            status_code=403, detail="Client access requires tenant_id"
-        )
+        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
     tenant_record_id = await public_id_to_record_id(
         pb, "tenants", "tenant_id", tenant, ctx.token
     )
@@ -130,7 +136,7 @@ async def create_site(
     await create_bucket_for_site(body.site_id, storage)
 
     bucket_name = sanitize_bucket_name(body.site_id)
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "site_id": body.site_id,
         "tenant_id": tenant_record_id,
         "template_id": template_record_id,
@@ -153,7 +159,11 @@ async def create_site(
         await delete_bucket_for_site(bucket_name, storage)
         raise
 
-    return _record_to_response(await map_site_record(record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")))
+    return _record_to_response(
+        await map_site_record(
+            record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+        )
+    )
 
 
 @router.get("/{site_id}", response_model=SiteResponse)
@@ -169,7 +179,9 @@ async def get_site(
         filter_expr=f'site_id="{site_id}"',
         token=ctx.token,
     )
-    record = await map_site_record(record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id"))
+    record = await map_site_record(
+        record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+    )
     ctx.enforce_owns(record)
     return _record_to_response(record)
 
@@ -188,7 +200,9 @@ async def update_site(
         filter_expr=f'site_id="{site_id}"',
         token=ctx.token,
     )
-    mapped_existing = await map_site_record(existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id"))
+    mapped_existing = await map_site_record(
+        existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+    )
     ctx.enforce_owns(mapped_existing)
 
     if (
@@ -201,7 +215,7 @@ async def update_site(
     ):
         return _record_to_response(mapped_existing)
 
-    update_data: Dict[str, Any] = {}
+    update_data: dict[str, Any] = {}
     if body.template_id is not None:
         update_data["template_id"] = await public_id_to_record_id(
             pb, "templates", "template_id", body.template_id, ctx.token
@@ -241,7 +255,11 @@ async def update_site(
         token=ctx.token,
         user_id=ctx.user_id,
     )
-    return _record_to_response(await map_site_record(record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")))
+    return _record_to_response(
+        await map_site_record(
+            record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+        )
+    )
 
 
 @router.delete("/{site_id}", status_code=204)
@@ -259,7 +277,9 @@ async def delete_site(
         filter_expr=f'site_id="{site_id}"',
         token=ctx.token,
     )
-    mapped_existing = await map_site_record(existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id"))
+    mapped_existing = await map_site_record(
+        existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+    )
     ctx.enforce_owns(mapped_existing)
 
     project_name = sanitize_project_name(site_id)
@@ -269,19 +289,30 @@ async def delete_site(
     try:
         await remove_domain_from_pages(project_name, custom_domain, cf)
     except Exception as e:
-        logger.warning("failed to remove domain from pages during delete", extra={"site_id": site_id, "error": str(e)})
+        logger.warning(
+            "failed to remove domain from pages during delete",
+            extra={"site_id": site_id, "error": str(e)},
+        )
 
     try:
         await remove_dns_for_domain(custom_domain, cf)
     except Exception as e:
-        logger.warning("failed to remove DNS during delete", extra={"site_id": site_id, "error": str(e)})
+        logger.warning(
+            "failed to remove DNS during delete",
+            extra={"site_id": site_id, "error": str(e)},
+        )
 
-    await cleanup_all_domains(project_name, existing.get("domain_id"), cf, pb, ctx.token)
+    await cleanup_all_domains(
+        project_name, existing.get("domain_id"), cf, pb, ctx.token
+    )
 
     try:
         await delete_bucket_for_site(sanitize_bucket_name(site_id), storage)
     except Exception as e:
-        logger.warning("failed to delete bucket during delete", extra={"site_id": site_id, "error": str(e)})
+        logger.warning(
+            "failed to delete bucket during delete",
+            extra={"site_id": site_id, "error": str(e)},
+        )
 
     await pb.delete_record(
         collection=COLLECTION,

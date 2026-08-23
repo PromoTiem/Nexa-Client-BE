@@ -1,5 +1,5 @@
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -19,7 +19,7 @@ from app.interface.dto.user import (
     UserUpdateRequest,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import build_filter, validate_id
+from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
 COLLECTION = "users"
 
@@ -27,7 +27,7 @@ router = APIRouter()
 logger = get_logger("user_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> UserResponse:
+def _record_to_response(record: dict[str, Any]) -> UserResponse:
     return UserResponse(
         id=record["id"],
         email=record.get("email", ""),
@@ -91,9 +91,9 @@ async def update_my_profile(
 async def list_users(
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
-    status: Optional[str] = Query(None),
-    role: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
+    status: str | None = Query(None),
+    role: str | None = Query(None),
+    search: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserListResponse:
@@ -102,11 +102,14 @@ async def list_users(
 
     filter_parts = [f'tenant_id="{tenant}"']
     if status:
-        filter_parts.append(f'status="{status}"')
+        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     if role:
-        filter_parts.append(f'role="{role}"')
+        filter_parts.append(f'role="{sanitize_filter_value(role)}"')
     if search:
-        filter_parts.append(f'(name~"{search}" || email~"{search}")')
+        sanitized_search = sanitize_filter_value(search)
+        filter_parts.append(
+            f'(name~"{sanitized_search}" || email~"{sanitized_search}")'
+        )
 
     filter_expr = build_filter(filter_parts)
 

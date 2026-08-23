@@ -1,5 +1,5 @@
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import HTTPException
 
@@ -33,7 +33,7 @@ class SiteFileService:
         self,
         storage_client: StorageClient,
         max_file_bytes: int,
-        allowed_mime: Optional[frozenset] = None,
+        allowed_mime: frozenset | None = None,
     ) -> None:
         self._storage = storage_client
         self._max_file_bytes = max_file_bytes
@@ -54,7 +54,7 @@ class SiteFileService:
 
     async def get_record(
         self, file_id: str, pb: PocketBaseClient, token: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return await pb.find_one_by_filter(
             collection=self.COLLECTION,
             filter_expr=f'file_id="{file_id}"',
@@ -64,12 +64,12 @@ class SiteFileService:
     async def list_files(
         self,
         site_id: str,
-        page_id: Optional[str],
+        page_id: str | None,
         page: int,
         limit: int,
         pb: PocketBaseClient,
         token: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         filter_expr = f'site_id="{site_id}"'
         if page_id:
             filter_expr += f' && page_id="{page_id}"'
@@ -84,7 +84,7 @@ class SiteFileService:
 
     async def get_download_url(
         self, file_id: str, pb: PocketBaseClient, token: str
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         record = await self.get_record(file_id, pb, token)
         if record.get("status") != "uploaded":
             raise HTTPException(
@@ -103,13 +103,13 @@ class SiteFileService:
         filename: str,
         content_type: str,
         declared_size: int,
-        name: Optional[str],
-        page_id: Optional[str],
+        name: str | None,
+        page_id: str | None,
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str],
-        extra_fields: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        user_id: str | None,
+        extra_fields: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         # 1. site must exist
         await pb.find_one_by_filter(
             collection="sites",
@@ -142,7 +142,7 @@ class SiteFileService:
         key = r["key"]
 
         file_id = f"file_{uuid.uuid4().hex[:12]}"
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "status": "pending",
             "file_id": file_id,
             "site_id": site_id,
@@ -183,8 +183,8 @@ class SiteFileService:
         file_id: str,
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str],
-    ) -> Dict[str, Any]:
+        user_id: str | None,
+    ) -> dict[str, Any]:
         record = await self.get_record(file_id, pb, token)
 
         # idempotent: already confirmed -> return as-is, no HEAD re-check
@@ -225,9 +225,7 @@ class SiteFileService:
             token=token,
             user_id=user_id,
         )
-        self._logger.info(
-            f"{self._NOUN} upload confirmed", extra={"file_id": file_id}
-        )
+        self._logger.info(f"{self._NOUN} upload confirmed", extra={"file_id": file_id})
         return updated
 
     # ----- metadata + deletion ----------------------------------------- #
@@ -235,11 +233,11 @@ class SiteFileService:
     async def update_metadata(
         self,
         file_id: str,
-        updates: Dict[str, Any],
+        updates: dict[str, Any],
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str],
-    ) -> Dict[str, Any]:
+        user_id: str | None,
+    ) -> dict[str, Any]:
         record = await self.get_record(file_id, pb, token)
         return await pb.update_record(
             collection=self.COLLECTION,
@@ -254,7 +252,7 @@ class SiteFileService:
         file_id: str,
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> None:
         record = await self.get_record(file_id, pb, token)
         # Object first: if delete_record fails afterwards the record points at
@@ -269,15 +267,15 @@ class SiteFileService:
 
     async def bulk_delete(
         self,
-        file_ids: List[str],
+        file_ids: list[str],
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         auth: Optional["AuthContext"] = None,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         from app.interface.route_helpers import auth_tenant
 
-        results: List[Dict[str, str]] = []
+        results: list[dict[str, str]] = []
         tenant = auth_tenant(auth) if auth else None
         for file_id in file_ids:
             try:
@@ -298,27 +296,21 @@ class SiteFileService:
                             token=token,
                         )
                         if site.get("tenant_id") != tenant:
-                            results.append(
-                                {"file_id": file_id, "status": "not_found"}
-                            )
+                            results.append({"file_id": file_id, "status": "not_found"})
                             continue
                     except HTTPException:
-                        results.append(
-                            {"file_id": file_id, "status": "not_found"}
-                        )
+                        results.append({"file_id": file_id, "status": "not_found"})
                         continue
 
             try:
-                await self._storage.delete_object(
-                    record["bucket"], record["path"]
-                )
+                await self._storage.delete_object(record["bucket"], record["path"])
                 await pb.delete_record(
                     collection=self.COLLECTION,
                     record_id=record["id"],
                     token=token,
                 )
                 results.append({"file_id": file_id, "status": "deleted"})
-            except Exception:  # noqa: BLE001 - report per-id, keep going
+            except Exception:
                 self._logger.warning(
                     "bulk delete item failed", extra={"file_id": file_id}
                 )
