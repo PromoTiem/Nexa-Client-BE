@@ -1,8 +1,9 @@
 import secrets
-from typing import Any
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
@@ -11,6 +12,7 @@ from app.interface.dependencies import (
     get_tenant_context,
 )
 from app.interface.dto.user import (
+    UserChangePasswordRequest,
     UserCreateRequest,
     UserCreateResponse,
     UserListResponse,
@@ -18,7 +20,7 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
-from app.interface.rbac import Permission, enforce_permission
+from app.interface.rbac import Permission, UserRole, check_role_permission, enforce_permission
 from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
 COLLECTION = "users"
@@ -27,7 +29,7 @@ router = APIRouter()
 logger = get_logger("user_routes")
 
 
-def _record_to_response(record: dict[str, Any]) -> UserResponse:
+def _record_to_response(record: Dict[str, Any]) -> UserResponse:
     return UserResponse(
         id=record["id"],
         email=record.get("email", ""),
@@ -35,8 +37,9 @@ def _record_to_response(record: dict[str, Any]) -> UserResponse:
         avatar=record.get("avatar", ""),
         phone=record.get("phone", ""),
         tenant_id=record.get("tenant_id", ""),
-        role=record.get("role", "member"),
+        role=record.get("role", "guest"),
         status=record.get("status", "active"),
+        first_auth=record.get("first_auth", False),
         last_login=record.get("last_login", ""),
         metadata=record.get("metadata") or {},
         created=record.get("created", ""),
@@ -82,6 +85,41 @@ async def update_my_profile(
         token=ctx.token,
     )
     return _record_to_response(record)
+@router.post("/me/password", status_code=204)
+async def change_my_password(
+    body: UserChangePasswordRequest,
+    ctx: TenantContext = Depends(get_tenant_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    # 1. Verify old password
+    try:
+        await pb.auth_with_password(
+            collection=settings.pocketbase_auth_collection,
+            identity=ctx.auth.record["email"],
+            password=body.old_password,
+        )
+    except HTTPException:
+        raise HTTPException(status_code=400, detail="Invalid old password")
+
+    # 2. Update password and set first_auth to False
+    await pb.update_record(
+        collection=COLLECTION,
+        record_id=ctx.user_id,
+        data={
+            "password": body.password,
+            "passwordConfirm": body.password_confirm,
+            "first_auth": False,
+        },
+        token=ctx.token,
+    )
+
+    logger.info("user password changed", extra={"user_id": ctx.user_id})
+
+    return Response(status_code=204)
+
+
+
 
 
 # ── Tenant admin — user CRUD ────────────────────────────────────
@@ -91,9 +129,9 @@ async def update_my_profile(
 async def list_users(
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
-    status: str | None = Query(None),
-    role: str | None = Query(None),
-    search: str | None = Query(None),
+    status: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserListResponse:
@@ -138,6 +176,8 @@ async def create_user(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserCreateResponse:
     enforce_permission(ctx.auth, Permission.USERS_CREATE)
+    caller_role = UserRole(ctx.auth.record.get("role", "guest"))
+    check_role_permission(caller_role, UserRole(body.role))
 
     if body.tenant_id and body.tenant_id != ctx.tenant_id:
         raise HTTPException(
@@ -158,6 +198,7 @@ async def create_user(
             "tenant_id": ctx.tenant_id,
             "role": body.role,
             "status": "active",
+            "first_auth": True,
             "metadata": body.metadata or {},
         },
         token=ctx.token,
@@ -213,6 +254,10 @@ async def update_user(
         )
         ctx.enforce_owns(record)
         return _record_to_response(record)
+
+    if "role" in update_data:
+        caller_role = UserRole(ctx.auth.record.get("role", "guest"))
+        check_role_permission(caller_role, UserRole(update_data["role"]))
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,

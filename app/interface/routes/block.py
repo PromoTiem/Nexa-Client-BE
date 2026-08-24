@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,9 +9,9 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
-from app.interface.dto.block import BlockListResponse, BlockResponse
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import validate_id
+from app.interface.route_helpers import combine_filter, tenant_filter, validate_id
+from app.interface.dto.block import BlockResponse, BlockListResponse
 
 COLLECTION = "blocks"
 
@@ -19,7 +19,7 @@ router = APIRouter()
 logger = get_logger("block_routes")
 
 
-def _record_to_response(record: dict[str, Any]) -> BlockResponse:
+def _record_to_response(record: Dict[str, Any]) -> BlockResponse:
     return BlockResponse(
         id=record["id"],
         block_id=record["block_id"],
@@ -44,9 +44,11 @@ async def list_blocks(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BlockListResponse:
     enforce_permission(ctx.auth, Permission.BLOCKS_LIST)
+    tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
     result = await pb.list_records(
         collection=COLLECTION,
         token=ctx.token,
+        filter=tenant_clause,
         sort=sort,
         page=page,
         per_page=per_page,
@@ -69,9 +71,11 @@ async def get_block(
 ) -> BlockResponse:
     enforce_permission(ctx.auth, Permission.BLOCKS_LIST)
     validate_id(block_id, "block_id")
+    tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
+    lookup_filter = combine_filter(f'block_id="{block_id}"', tenant_clause)
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'block_id="{block_id}"',
+        filter_expr=lookup_filter,
         token=ctx.token,
     )
     return _record_to_response(record)

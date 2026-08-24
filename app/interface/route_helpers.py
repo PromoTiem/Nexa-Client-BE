@@ -1,11 +1,10 @@
 import re
-from collections.abc import Sequence
-from typing import Any
+from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import HTTPException
 
-from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.auth_models import AuthContext
+from app.infrastructure.pocketbase.client import PocketBaseClient
 
 # ----- ID validation -------------------------------------------------- #
 
@@ -19,7 +18,6 @@ def validate_id(value: str, name: str = "id") -> None:
 
 # ----- filter sanitization -------------------------------------------------- #
 
-# Characters that could be used for PocketBase filter injection
 _FILTER_UNSAFE_RE = re.compile(r'["\\]')
 
 
@@ -30,11 +28,10 @@ def sanitize_filter_value(value: str) -> str:
 
 # ----- sort validation -------------------------------------------------- #
 
-# Valid sort field names (alphanumeric + underscore only)
 _SORT_FIELD_RE = re.compile(r"^-?[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
-def validate_sort(value: str, allowed_fields: list[str] | None = None) -> str:
+def validate_sort(value: str, allowed_fields: Optional[List[str]] = None) -> str:
     """Validate sort parameter to prevent injection.
 
     Args:
@@ -56,7 +53,6 @@ def validate_sort(value: str, allowed_fields: list[str] | None = None) -> str:
         if not part:
             continue
 
-        # Extract field name (remove leading - for descending)
         field = part.lstrip("-")
 
         if not _SORT_FIELD_RE.match(part):
@@ -72,27 +68,24 @@ def validate_sort(value: str, allowed_fields: list[str] | None = None) -> str:
 
 # ----- filter building -------------------------------------------------- #
 
-
-def build_filter(parts: list[str]) -> str | None:
+def build_filter(parts: List[str]) -> Optional[str]:
     """Join filter parts with ``&&`` into a single PocketBase filter expression."""
     return " && ".join(parts) if parts else None
 
 
 # ----- auth / tenant helpers ------------------------------------------- #
 
-
-def auth_tenant(auth: AuthContext) -> str | None:
+def auth_tenant(auth: AuthContext) -> Optional[str]:
     return auth.record.get("tenant_id")
 
 
-def ensure_tenant_owns(record: dict[str, Any], auth: AuthContext) -> None:
+def ensure_tenant_owns(record: Dict[str, Any], auth: AuthContext) -> None:
     tenant = auth_tenant(auth)
     if tenant and record.get("tenant_id") != tenant:
         raise HTTPException(status_code=404, detail="Record not found")
 
 
 # ----- PocketBase ID resolution ---------------------------------------- #
-
 
 async def ensure_site_tenant(
     pb: PocketBaseClient,
@@ -121,7 +114,7 @@ async def ensure_site_tenant(
 
 async def ensure_file_tenant(
     pb: PocketBaseClient,
-    record: dict[str, Any],
+    record: Dict[str, Any],
     auth: AuthContext,
 ) -> None:
     """Verify that a file record's parent site belongs to the caller's tenant.
@@ -136,6 +129,52 @@ async def ensure_file_tenant(
     if not site_id:
         return
     await ensure_site_tenant(pb, site_id, auth)
+
+
+async def tenant_record_id(
+    pb: PocketBaseClient,
+    token: str,
+    tenant_id: Optional[str],
+) -> str:
+    """Resolve the public business ``tenant_id`` to its internal PocketBase record id.
+
+    Raises 403 when no tenant is set, so tenant-scoped routes fail closed rather
+    than silently dropping the isolation boundary.
+    """
+    if not tenant_id:
+        raise HTTPException(
+            status_code=403, detail="Client access requires tenant_id"
+        )
+    return await public_id_to_record_id(pb, "tenants", "tenant_id", tenant_id, token)
+
+
+async def tenant_filter(
+    pb: PocketBaseClient,
+    token: str,
+    tenant_id: Optional[str],
+) -> str:
+    """Build a PocketBase filter clause scoping records to the caller's tenant.
+
+    Content collections (templates/styles/blocks/pages/sections) store
+    ``tenant_id`` as the **internal PocketBase record id**, so the public
+    business ``tenant_id`` is resolved first via ``tenant_record_id``.
+
+    Fails closed: when no tenant is set the caller is not allowed an unscoped
+    view, so a 403 is raised instead of returning an unrestricted filter.
+    """
+    record_id = await tenant_record_id(pb, token, tenant_id)
+    return f'tenant_id="{record_id}"'
+
+
+def combine_filter(base: str, tenant_clause: Optional[str]) -> str:
+    """AND a base filter expression with a tenant clause, parenthesizing the base.
+
+    Used by tenant-scoped GET handlers so the tenant condition cannot be escaped by
+    operator precedence in the base expression.
+    """
+    if tenant_clause:
+        return f"({base}) && {tenant_clause}"
+    return base
 
 
 async def public_id_to_record_id(
@@ -157,9 +196,9 @@ async def record_id_to_public_id(
     pb: PocketBaseClient,
     collection: str,
     public_field: str,
-    record_id: str | None,
+    record_id: Optional[str],
     token: str,
-) -> str | None:
+) -> Optional[str]:
     if not record_id:
         return None
     try:
@@ -175,13 +214,12 @@ async def record_id_to_public_id(
 
 # ----- record field mapping -------------------------------------------- #
 
-
 async def map_site_record(
-    record: dict[str, Any],
+    record: Dict[str, Any],
     token: str,
     pb: PocketBaseClient,
     fields: Sequence[str] = ("tenant_id",),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Resolve internal PocketBase IDs to public IDs for the given fields."""
     mapped = dict(record)
     field_collection_map = {
@@ -195,3 +233,5 @@ async def map_site_record(
             pb, collection, public_field, record.get(field), token
         )
     return mapped
+
+

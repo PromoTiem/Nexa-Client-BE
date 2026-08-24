@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -18,9 +18,9 @@ from app.interface.dto.build import (
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     build_filter,
-    public_id_to_record_id,
     record_id_to_public_id,
-    sanitize_filter_value,
+    tenant_filter,
+    tenant_record_id,
     validate_id,
     validate_sort,
 )
@@ -31,7 +31,7 @@ router = APIRouter()
 logger = get_logger("build_routes")
 
 
-def _record_to_response(record: dict[str, Any]) -> BuildResponse:
+def _record_to_response(record: Dict[str, Any]) -> BuildResponse:
     return BuildResponse(
         id=record["id"],
         build_id=record["build_id"],
@@ -53,7 +53,9 @@ def _record_to_response(record: dict[str, Any]) -> BuildResponse:
     )
 
 
-async def _resolve_site_tenant(site_id: str, pb: PocketBaseClient, token: str) -> str:
+async def _resolve_site_tenant(
+    site_id: str, pb: PocketBaseClient, token: str
+) -> str:
     site = await pb.find_one_by_filter(
         collection="sites",
         filter_expr=f'site_id="{site_id}"',
@@ -63,7 +65,7 @@ async def _resolve_site_tenant(site_id: str, pb: PocketBaseClient, token: str) -
 
 
 async def _enforce_build_tenant(
-    record: dict[str, Any], ctx: TenantContext, pb: PocketBaseClient
+    record: Dict[str, Any], ctx: TenantContext, pb: PocketBaseClient
 ) -> None:
     if not ctx.tenant_id:
         return
@@ -80,32 +82,21 @@ async def list_builds(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    site_id: str | None = Query(None),
-    status: str | None = Query(None),
+    site_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BuildListResponse:
     enforce_permission(ctx.auth, Permission.BUILDS_LIST)
-    sort = validate_sort(
-        sort,
-        allowed_fields=[
-            "created_at",
-            "updated_at",
-            "status",
-            "started_at",
-            "completed_at",
-        ],
-    )
+    sort = validate_sort(sort, allowed_fields=["created_at", "updated_at", "status"])
     filter_parts = []
     if ctx.tenant_id:
-        tenant_record_id = await public_id_to_record_id(
-            pb, "tenants", "tenant_id", ctx.tenant_id, ctx.token
-        )
-        filter_parts.append(f'tenant_id="{tenant_record_id}"')
+        tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
+        filter_parts.append(tenant_clause)
     if site_id:
-        filter_parts.append(f'site_id="{sanitize_filter_value(site_id)}"')
+        filter_parts.append(f'site_id="{site_id}"')
     if status:
-        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
+        filter_parts.append(f'status="{status}"')
     filter_expr = build_filter(filter_parts)
 
     result = await pb.list_records(
@@ -155,26 +146,26 @@ async def create_build(
 
     tenant = ctx.tenant_id
     if not tenant:
-        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
+        raise HTTPException(
+            status_code=403, detail="Client access requires tenant_id"
+        )
 
-    tenant_record_id = await public_id_to_record_id(
-        pb, "tenants", "tenant_id", tenant, ctx.token
-    )
+    tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
 
     site = await pb.find_one_by_filter(
         collection="sites",
         filter_expr=f'site_id="{body.site_id}"',
         token=ctx.token,
     )
-    if site.get("tenant_id") != tenant_record_id:
+    if site.get("tenant_id") != tenant_pb_id:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    data: dict[str, Any] = {
+    data: Dict[str, Any] = {
         "build_id": body.build_id,
         "site_id": body.site_id,
         "status": "queued",
         "description": "Manual build",
-        "tenant_id": tenant_record_id,
+        "tenant_id": tenant_pb_id,
     }
     if body.template_id:
         validate_id(body.template_id, "template_id")
@@ -213,7 +204,7 @@ async def update_build(
     )
     await _enforce_build_tenant(record, ctx, pb)
 
-    updates: dict[str, Any] = {}
+    updates: Dict[str, Any] = {}
     if body.status is not None:
         updates["status"] = body.status
     if body.content_id is not None:

@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, EmailStr
 
@@ -10,39 +10,46 @@ UserStatus = Literal["active", "inactive", "pending"]
 
 class UserCreateRequest(BaseModel):
     email: EmailStr
-    name: str | None = None
-    phone: str | None = None
-    tenant_id: str | None = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    tenant_id: Optional[str] = None
     role: UserRole = "member"
-    metadata: dict[str, Any] | None = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class UserUpdateRequest(BaseModel):
-    name: str | None = None
-    phone: str | None = None
-    role: UserRole | None = None
-    status: UserStatus | None = None
-    metadata: dict[str, Any] | None = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[UserRole] = None
+    status: Optional[UserStatus] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class UserProfileUpdateRequest(BaseModel):
-    name: str | None = None
-    avatar: str | None = None
-    phone: str | None = None
-    metadata: dict[str, Any] | None = None
+    name: Optional[str] = None
+    avatar: Optional[str] = None
+    phone: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class UserChangePasswordRequest(BaseModel):
+    old_password: str
+    password: str
+    password_confirm: str
 
 
 class UserResponse(BaseModel):
     id: str
     email: str
-    name: str | None = None
-    avatar: str | None = None
-    phone: str | None = None
+    name: Optional[str] = None
+    avatar: Optional[str] = None
+    phone: Optional[str] = None
     tenant_id: str
     role: UserRole
     status: UserStatus
-    last_login: str | None = None
-    metadata: dict[str, Any] | None = None
+    first_auth: bool = False
+    last_login: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
     created: str
     updated: str
 

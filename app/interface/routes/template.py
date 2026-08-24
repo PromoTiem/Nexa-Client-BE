@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,13 +9,16 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
-from app.interface.dto.template import TemplateListResponse, TemplateResponse
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
+    build_filter,
+    combine_filter,
     sanitize_filter_value,
+    tenant_filter,
     validate_id,
     validate_sort,
 )
+from app.interface.dto.template import TemplateResponse, TemplateListResponse
 
 COLLECTION = "templates"
 
@@ -23,7 +26,7 @@ router = APIRouter()
 logger = get_logger("template_routes")
 
 
-def _record_to_response(record: dict[str, Any]) -> TemplateResponse:
+def _record_to_response(record: Dict[str, Any]) -> TemplateResponse:
     return TemplateResponse(
         id=record["id"],
         template_id=record["template_id"],
@@ -48,12 +51,15 @@ async def _resolve_batch(
     token: str,
     collection: str,
     id_field: str,
-    ids: list[str] | None,
-    warnings: list[str],
-) -> list[dict[str, Any]]:
+    ids: Optional[List[str]],
+    warnings: List[str],
+    tenant_clause: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     if not ids:
         return []
     filter_expr = " || ".join(f'{id_field}="{id}"' for id in ids)
+    if tenant_clause:
+        filter_expr = f"({filter_expr}) && {tenant_clause}"
     try:
         result = await pb.list_records(
             collection=collection, token=token, filter=filter_expr, per_page=100
@@ -67,15 +73,19 @@ async def _resolve_batch(
 async def _resolve_style(
     pb: PocketBaseClient,
     token: str,
-    style_id: str | None,
-    warnings: list[str],
-) -> dict[str, Any] | None:
+    style_id: Optional[str],
+    warnings: List[str],
+    tenant_clause: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     if not style_id:
         return None
+    filter_expr = f'style_id="{style_id}"'
+    if tenant_clause:
+        filter_expr = f"{filter_expr} && {tenant_clause}"
     try:
         return await pb.find_one_by_filter(
             collection="styles",
-            filter_expr=f'style_id="{style_id}"',
+            filter_expr=filter_expr,
             token=token,
         )
     except Exception:
@@ -88,9 +98,9 @@ async def list_templates(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    category: str | None = Query(None),
-    tags: str | None = Query(None),
-    search: str | None = Query(None),
+    category: Optional[str] = Query(None),
+    tags: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateListResponse:
@@ -98,7 +108,7 @@ async def list_templates(
     sort = validate_sort(
         sort, allowed_fields=["created_at", "updated_at", "name", "category"]
     )
-    filter_parts: list[str] = []
+    filter_parts: List[str] = []
     if category:
         filter_parts.append(f'category="{sanitize_filter_value(category)}"')
     if tags:
@@ -112,7 +122,11 @@ async def list_templates(
             f'(name~"{sanitized_search}" || description~"{sanitized_search}")'
         )
 
-    filter_expr = " && ".join(filter_parts) if filter_parts else None
+    tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
+    if tenant_clause:
+        filter_parts.append(tenant_clause)
+
+    filter_expr = build_filter(filter_parts)
 
     result = await pb.list_records(
         collection=COLLECTION,
@@ -135,15 +149,17 @@ async def list_templates(
 @router.get("/{template_id}", response_model=TemplateResponse)
 async def get_template(
     template_id: str,
-    expand: str | None = Query(None),
+    expand: Optional[str] = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateResponse:
     enforce_permission(ctx.auth, Permission.TEMPLATES_LIST)
     validate_id(template_id, "template_id")
+    tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
+    lookup_filter = combine_filter(f'template_id="{template_id}"', tenant_clause)
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'template_id="{template_id}"',
+        filter_expr=lookup_filter,
         token=ctx.token,
     )
     resp = _record_to_response(record)
@@ -151,21 +167,17 @@ async def get_template(
     if not expand:
         return resp
 
-    expand_set = (
-        {"style", "pages", "sections", "blocks"}
-        if expand == "true"
-        else set(expand.split(","))
-    )
-    warnings: list[str] = list(resp.warnings) if resp.warnings else []
+    expand_set = {"style", "pages", "sections", "blocks"} if expand == "true" else set(expand.split(","))
+    warnings: List[str] = list(resp.warnings) if resp.warnings else []
 
     if "style" in expand_set:
         resp.expanded_style = await _resolve_style(
-            pb, ctx.token, resp.style_id, warnings
+            pb, ctx.token, resp.style_id, warnings, tenant_clause
         )
 
     if "pages" in expand_set:
         resp.expanded_pages = await _resolve_batch(
-            pb, ctx.token, "pages", "page_id", resp.page_ids, warnings
+            pb, ctx.token, "pages", "page_id", resp.page_ids, warnings, tenant_clause
         )
 
     if resp.expanded_pages and "sections" in expand_set:
@@ -173,7 +185,7 @@ async def get_template(
         for page in resp.expanded_pages:
             all_section_ids.extend(page.get("section_ids") or [])
         sections = await _resolve_batch(
-            pb, ctx.token, "sections", "section_id", all_section_ids, warnings
+            pb, ctx.token, "sections", "section_id", all_section_ids, warnings, tenant_clause
         )
         sections_by_id = {s["section_id"]: s for s in sections}
         for page in resp.expanded_pages:
@@ -190,7 +202,7 @@ async def get_template(
                 for section in page.get("expanded_sections", []):
                     all_block_ids.extend(section.get("block_ids") or [])
             blocks = await _resolve_batch(
-                pb, ctx.token, "blocks", "block_id", all_block_ids, warnings
+                pb, ctx.token, "blocks", "block_id", all_block_ids, warnings, tenant_clause
             )
             blocks_by_id = {b["block_id"]: b for b in blocks}
             for page in resp.expanded_pages:
@@ -204,7 +216,7 @@ async def get_template(
             for page in resp.expanded_pages:
                 all_block_ids.extend(page.get("block_ids") or [])
             blocks = await _resolve_batch(
-                pb, ctx.token, "blocks", "block_id", all_block_ids, warnings
+                pb, ctx.token, "blocks", "block_id", all_block_ids, warnings, tenant_clause
             )
             blocks_by_id = {b["block_id"]: b for b in blocks}
             for page in resp.expanded_pages:

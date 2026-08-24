@@ -3,14 +3,15 @@ from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
 from app.interface.rbac import (
-    ROLE_PERMISSIONS,
     Permission,
-    RoleGuard,
     UserRole,
+    ROLE_PERMISSIONS,
+    check_role_permission,
+    has_permission,
     can_delete_resources,
     can_manage_users,
-    has_permission,
 )
+
 
 MOCK_OWNER = AuthContext(
     token="owner_token",
@@ -94,43 +95,6 @@ class TestUserRolePermissions:
         assert not has_permission(MOCK_NO_ROLE, Permission.SITES_CREATE)
 
 
-class TestRoleGuard:
-    def test_guard_allows_owner(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER}))
-        guard.check(MOCK_OWNER)
-
-    def test_guard_allows_multiple_roles(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER, UserRole.ADMIN}))
-        guard.check(MOCK_OWNER)
-        guard.check(MOCK_ADMIN)
-
-    def test_guard_denies_unauthorized_role(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER}))
-        with pytest.raises(HTTPException) as exc_info:
-            guard.check(MOCK_MEMBER)
-        assert exc_info.value.status_code == 403
-
-    def test_guard_with_permission_check(self):
-        guard = RoleGuard(
-            allowed_roles=frozenset({UserRole.OWNER}),
-            required_permission=Permission.USERS_DELETE,
-        )
-        guard.check(MOCK_OWNER)
-        with pytest.raises(HTTPException) as exc_info:
-            guard.check(MOCK_ADMIN)
-        assert exc_info.value.status_code == 403
-
-    def test_guard_denies_unknown_role(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER}))
-        unknown = AuthContext(
-            token="unknown",
-            record={"id": "u1", "role": "unknown_role"},
-        )
-        with pytest.raises(HTTPException) as exc_info:
-            guard.check(unknown)
-        assert exc_info.value.status_code == 403
-
-
 class TestHelperFunctions:
     def test_can_delete_resources(self):
         assert can_delete_resources(MOCK_OWNER)
@@ -182,3 +146,50 @@ class TestPermissionMatrix:
                 Permission.BUILDS_LIST,
             ):
                 assert perm not in guest_perms
+
+
+class TestCheckRolePermission:
+    def test_owner_can_assign_admin(self):
+        check_role_permission(UserRole.OWNER, UserRole.ADMIN)
+
+    def test_owner_can_assign_member(self):
+        check_role_permission(UserRole.OWNER, UserRole.MEMBER)
+
+    def test_owner_can_assign_guest(self):
+        check_role_permission(UserRole.OWNER, UserRole.GUEST)
+
+    def test_owner_cannot_assign_owner(self):
+        with pytest.raises(HTTPException) as exc_info:
+            check_role_permission(UserRole.OWNER, UserRole.OWNER)
+        assert exc_info.value.status_code == 403
+
+    def test_admin_can_assign_member(self):
+        check_role_permission(UserRole.ADMIN, UserRole.MEMBER)
+
+    def test_admin_can_assign_guest(self):
+        check_role_permission(UserRole.ADMIN, UserRole.GUEST)
+
+    def test_admin_cannot_assign_owner(self):
+        with pytest.raises(HTTPException) as exc_info:
+            check_role_permission(UserRole.ADMIN, UserRole.OWNER)
+        assert exc_info.value.status_code == 403
+
+    def test_admin_cannot_assign_admin(self):
+        with pytest.raises(HTTPException) as exc_info:
+            check_role_permission(UserRole.ADMIN, UserRole.ADMIN)
+        assert exc_info.value.status_code == 403
+
+    def test_member_cannot_assign_equal_or_higher_role(self):
+        for role in [UserRole.OWNER, UserRole.ADMIN, UserRole.MEMBER]:
+            with pytest.raises(HTTPException) as exc_info:
+                check_role_permission(UserRole.MEMBER, role)
+            assert exc_info.value.status_code == 403
+
+    def test_member_can_assign_guest(self):
+        check_role_permission(UserRole.MEMBER, UserRole.GUEST)
+
+    def test_guest_cannot_assign_any_role(self):
+        for role in UserRole:
+            with pytest.raises(HTTPException) as exc_info:
+                check_role_permission(UserRole.GUEST, role)
+            assert exc_info.value.status_code == 403

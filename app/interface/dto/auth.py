@@ -9,6 +9,14 @@ class AuthLoginRequest(BaseModel):
     identity_field: str | None = None
 
 
+class AuthForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class AuthForgotPasswordResponse(BaseModel):
+    temporary_password: str
+
+
 class AuthResponse(BaseModel):
     token: str
     record: dict[str, Any]
