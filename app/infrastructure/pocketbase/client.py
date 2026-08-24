@@ -173,7 +173,7 @@ class PocketBaseClient:
         self,
         email: str,
         password: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         url = f"{self._base_url}/api/admins/auth-with-password"
         payload = {"identity": email, "password": password}
 
