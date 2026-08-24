@@ -32,6 +32,7 @@ from app.interface.route_helpers import (
     record_id_to_public_id,
     tenant_record_id,
     validate_id,
+    validate_sort,
 )
 from app.interface.dto.site import (
     SiteCreateRequest,
@@ -79,6 +80,9 @@ async def list_sites(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteListResponse:
     enforce_permission(ctx.auth, Permission.SITES_LIST)
+    sort = validate_sort(
+        sort, allowed_fields=["created_at", "updated_at", "name", "status"]
+    )
     effective_tenant = ctx.tenant_id or tenant_id
     filter_expr = None
     if effective_tenant:

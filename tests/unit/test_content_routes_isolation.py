@@ -70,6 +70,7 @@ class TestListTenantIsolation:
     async def test_list_templates_filters_by_tenant(self):
         pb = _pb()
         await template_route.list_templates(
+            page=1, per_page=50, sort="-created_at",
             category=None, tags=None, search=None, ctx=_ctx(), pb=pb
         )
         kwargs = pb.list_records.call_args.kwargs

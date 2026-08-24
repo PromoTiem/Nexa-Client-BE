@@ -16,6 +16,56 @@ def validate_id(value: str, name: str = "id") -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {name} format")
 
 
+# ----- filter sanitization -------------------------------------------------- #
+
+_FILTER_UNSAFE_RE = re.compile(r'["\\]')
+
+
+def sanitize_filter_value(value: str) -> str:
+    """Escape double quotes and backslashes in filter values to prevent injection."""
+    return _FILTER_UNSAFE_RE.sub(lambda m: "\\" + m.group(0), value)
+
+
+# ----- sort validation -------------------------------------------------- #
+
+_SORT_FIELD_RE = re.compile(r"^-?[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_sort(value: str, allowed_fields: Optional[List[str]] = None) -> str:
+    """Validate sort parameter to prevent injection.
+
+    Args:
+        value: The sort string to validate (e.g., "-created_at" or "name")
+        allowed_fields: Optional list of allowed field names. If provided,
+                       the sort field must be in this list.
+
+    Returns:
+        The validated sort string.
+
+    Raises:
+        HTTPException: 400 if the sort format is invalid.
+    """
+    parts = value.split(",")
+    validated_parts = []
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        field = part.lstrip("-")
+
+        if not _SORT_FIELD_RE.match(part):
+            raise HTTPException(status_code=400, detail=f"Invalid sort format: {part}")
+
+        if allowed_fields and field not in allowed_fields:
+            raise HTTPException(status_code=400, detail=f"Invalid sort field: {field}")
+
+        validated_parts.append(part)
+
+    return ",".join(validated_parts) if validated_parts else "-created_at"
+
+
 # ----- filter building -------------------------------------------------- #
 
 def build_filter(parts: List[str]) -> Optional[str]:

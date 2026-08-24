@@ -16,6 +16,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         allow_credentials: bool = True,
         allow_methods: List[str] = None,
         allow_headers: List[str] = None,
+        restrict_http_origins: bool = False,
     ) -> None:
         super().__init__(app)
         self.allowed_origins = set(allowed_origins or [])
@@ -23,15 +24,21 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         self.allow_credentials = allow_credentials
         self.allow_methods = allow_methods or ["*"]
         self.allow_headers = allow_headers or ["*"]
+        self.restrict_http_origins = restrict_http_origins
 
     def _is_origin_allowed(self, origin: str) -> bool:
         if origin in self.allowed_origins:
             return True
         if self.site_base_domain:
-            if origin.startswith("https://") and origin.endswith(f".{self.site_base_domain}"):
+            if origin.startswith("https://") and origin.endswith(
+                f".{self.site_base_domain}"
+            ):
                 return True
-            if origin.startswith("http://") and origin.endswith(f".{self.site_base_domain}"):
-                return True
+            if not self.restrict_http_origins:
+                if origin.startswith("http://") and origin.endswith(
+                    f".{self.site_base_domain}"
+                ):
+                    return True
         return False
 
     async def dispatch(
@@ -47,8 +54,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if origin and self._is_origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = ", ".join(self.allow_methods)
-            response.headers["Access-Control-Allow-Headers"] = ", ".join(self.allow_headers)
+            response.headers["Access-Control-Allow-Methods"] = ", ".join(
+                self.allow_methods
+            )
+            response.headers["Access-Control-Allow-Headers"] = ", ".join(
+                self.allow_headers
+            )
             response.headers["Access-Control-Max-Age"] = "86400"
+            response.headers["Vary"] = "Origin"
 
         return response

@@ -10,7 +10,14 @@ from app.interface.dependencies import (
     get_tenant_context,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import build_filter, combine_filter, tenant_filter, validate_id
+from app.interface.route_helpers import (
+    build_filter,
+    combine_filter,
+    sanitize_filter_value,
+    tenant_filter,
+    validate_id,
+    validate_sort,
+)
 from app.interface.dto.template import TemplateResponse, TemplateListResponse
 
 COLLECTION = "templates"
@@ -98,16 +105,22 @@ async def list_templates(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateListResponse:
     enforce_permission(ctx.auth, Permission.TEMPLATES_LIST)
+    sort = validate_sort(
+        sort, allowed_fields=["created_at", "updated_at", "name", "category"]
+    )
     filter_parts: List[str] = []
     if category:
-        filter_parts.append(f'category="{category}"')
+        filter_parts.append(f'category="{sanitize_filter_value(category)}"')
     if tags:
         for tag in tags.split(","):
             tag = tag.strip()
             if tag:
-                filter_parts.append(f'~tags~"{tag}"')
+                filter_parts.append(f'~tags~"{sanitize_filter_value(tag)}"')
     if search:
-        filter_parts.append(f'(name~"{search}" || description~"{search}")')
+        sanitized_search = sanitize_filter_value(search)
+        filter_parts.append(
+            f'(name~"{sanitized_search}" || description~"{sanitized_search}")'
+        )
 
     tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
     if tenant_clause:

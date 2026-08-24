@@ -19,7 +19,12 @@ from app.interface.dto.property import (
     PropertyUpdateRequest,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import build_filter, validate_id
+from app.interface.route_helpers import (
+    build_filter,
+    sanitize_filter_value,
+    validate_id,
+    validate_sort,
+)
 
 COLLECTION = "properties"
 
@@ -126,21 +131,24 @@ async def list_properties(
     enforce_permission(ctx.auth, Permission.PROPERTIES_LIST)
     validate_id(site_id, "site_id")
     await ctx.enforce_site(pb, site_id)
+    sort = validate_sort(
+        sort, allowed_fields=["ordering", "created_at", "updated_at", "name", "status"]
+    )
 
     filter_parts: List[str] = [
         f'site_id="{site_id}"',
         SOFT_DELETE_FILTER,
     ]
     if type:
-        filter_parts.append(f'type="{type}"')
+        filter_parts.append(f'type="{sanitize_filter_value(type)}"')
     if subtype:
-        filter_parts.append(f'subtype="{subtype}"')
+        filter_parts.append(f'subtype="{sanitize_filter_value(subtype)}"')
     if status:
-        filter_parts.append(f'status="{status}"')
+        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     if search:
-        filter_parts.append(f'name~"{search}"')
+        filter_parts.append(f'name~"{sanitize_filter_value(search)}"')
     if slug:
-        filter_parts.append(f'slug="{slug}"')
+        filter_parts.append(f'slug="{sanitize_filter_value(slug)}"')
 
     result = await pb.list_records(
         collection=COLLECTION,

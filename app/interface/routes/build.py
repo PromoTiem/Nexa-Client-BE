@@ -22,6 +22,7 @@ from app.interface.route_helpers import (
     tenant_filter,
     tenant_record_id,
     validate_id,
+    validate_sort,
 )
 
 COLLECTION = "builds"
@@ -87,6 +88,7 @@ async def list_builds(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BuildListResponse:
     enforce_permission(ctx.auth, Permission.BUILDS_LIST)
+    sort = validate_sort(sort, allowed_fields=["created_at", "updated_at", "status"])
     filter_parts = []
     if ctx.tenant_id:
         tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
@@ -155,7 +157,7 @@ async def create_build(
         filter_expr=f'site_id="{body.site_id}"',
         token=ctx.token,
     )
-    if site.get("tenant_id") != tenant_record_id:
+    if site.get("tenant_id") != tenant_pb_id:
         raise HTTPException(status_code=404, detail="Site not found")
 
     data: Dict[str, Any] = {
