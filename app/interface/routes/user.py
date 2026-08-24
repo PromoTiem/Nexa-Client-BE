@@ -20,7 +20,7 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
-from app.interface.rbac import Permission, enforce_permission
+from app.interface.rbac import Permission, UserRole, check_role_permission, enforce_permission
 from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
 COLLECTION = "users"
@@ -176,6 +176,8 @@ async def create_user(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserCreateResponse:
     enforce_permission(ctx.auth, Permission.USERS_CREATE)
+    caller_role = UserRole(ctx.auth.record.get("role", "guest"))
+    check_role_permission(caller_role, UserRole(body.role))
 
     if body.tenant_id and body.tenant_id != ctx.tenant_id:
         raise HTTPException(
@@ -252,6 +254,10 @@ async def update_user(
         )
         ctx.enforce_owns(record)
         return _record_to_response(record)
+
+    if "role" in update_data:
+        caller_role = UserRole(ctx.auth.record.get("role", "guest"))
+        check_role_permission(caller_role, UserRole(update_data["role"]))
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
