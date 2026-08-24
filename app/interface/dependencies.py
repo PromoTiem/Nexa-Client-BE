@@ -79,10 +79,10 @@ def get_storage_file_service(
     )
 
 
-async def get_auth_context(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
-    settings: Settings = Depends(get_settings),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+async def _resolve_auth_context(
+    credentials: Optional[HTTPAuthorizationCredentials],
+    settings: Settings,
+    pb: PocketBaseClient,
 ) -> AuthContext:
     if not credentials:
         logger.warning("missing token")
@@ -106,6 +106,14 @@ async def get_auth_context(
             status_code=403, detail="Client access requires tenant_id"
         )
     return AuthContext(token=data["token"], record=data["record"])
+
+
+async def get_auth_context(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    settings: Settings = Depends(get_settings),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+) -> AuthContext:
+    return await _resolve_auth_context(credentials, settings, pb)
 
 
 @dataclass
@@ -154,20 +162,4 @@ async def get_optional_auth_context(
 ) -> Optional[AuthContext]:
     if not credentials:
         return None
-    try:
-        data = await pb.auth_refresh(
-            collection=settings.pocketbase_auth_collection,
-            token=credentials.credentials,
-        )
-    except HTTPException as exc:
-        logger.warning(
-            "refresh failed",
-            extra={"status": exc.status_code, "detail": str(exc.detail)},
-        )
-        raise
-    if not data["record"].get("tenant_id"):
-        logger.warning("client auth missing tenant_id")
-        raise HTTPException(
-            status_code=403, detail="Client access requires tenant_id"
-        )
-    return AuthContext(token=data["token"], record=data["record"])
+    return await _resolve_auth_context(credentials, settings, pb)

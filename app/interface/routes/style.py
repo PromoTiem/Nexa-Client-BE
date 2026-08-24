@@ -10,7 +10,7 @@ from app.interface.dependencies import (
     get_tenant_context,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import validate_id
+from app.interface.route_helpers import combine_filter, tenant_filter, validate_id
 from app.interface.dto.style import StyleResponse, StyleListResponse
 
 COLLECTION = "styles"
@@ -43,9 +43,11 @@ async def list_styles(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> StyleListResponse:
     enforce_permission(ctx.auth, Permission.STYLES_LIST)
+    tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
     result = await pb.list_records(
         collection=COLLECTION,
         token=ctx.token,
+        filter=tenant_clause,
         sort=sort,
         page=page,
         per_page=per_page,
@@ -68,9 +70,11 @@ async def get_style(
 ) -> StyleResponse:
     enforce_permission(ctx.auth, Permission.STYLES_LIST)
     validate_id(style_id, "style_id")
+    tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
+    lookup_filter = combine_filter(f'style_id="{style_id}"', tenant_clause)
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'style_id="{style_id}"',
+        filter_expr=lookup_filter,
         token=ctx.token,
     )
     return _record_to_response(record)

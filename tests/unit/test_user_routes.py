@@ -92,7 +92,7 @@ class TestRecordToResponse:
         minimal = {"id": "u1", "email": "a@b.com"}
         result = _record_to_response(minimal)
         assert result.name == ""
-        assert result.role == "member"
+        assert result.role == "guest"
         assert result.status == "active"
         assert result.metadata == {}
 
@@ -158,7 +158,10 @@ class TestListUsers:
             }
         )
 
-        result = await list_users(ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
+        result = await list_users(
+            page=1, per_page=30, status=None, role=None, search=None,
+            ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb
+        )
 
         assert result.total == 1
         assert len(result.items) == 1
@@ -168,7 +171,10 @@ class TestListUsers:
         pb = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
-            await list_users(ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb)
+            await list_users(
+                page=1, per_page=30, status=None, role=None, search=None,
+                ctx=_tenant_ctx(MOCK_MEMBER_AUTH), pb=pb
+            )
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -185,7 +191,7 @@ class TestListUsers:
         )
 
         result = await list_users(
-            status="active",
+            page=1, per_page=30, status="active", role=None, search=None,
             ctx=_tenant_ctx(MOCK_ADMIN_AUTH),
             pb=pb,
         )

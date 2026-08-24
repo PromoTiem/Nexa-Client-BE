@@ -30,7 +30,9 @@ from app.interface.route_helpers import (
     map_site_record,
     public_id_to_record_id,
     record_id_to_public_id,
+    tenant_record_id,
     validate_id,
+    validate_sort,
 )
 from app.interface.dto.site import (
     SiteCreateRequest,
@@ -78,13 +80,14 @@ async def list_sites(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteListResponse:
     enforce_permission(ctx.auth, Permission.SITES_LIST)
+    sort = validate_sort(
+        sort, allowed_fields=["created_at", "updated_at", "name", "status"]
+    )
     effective_tenant = ctx.tenant_id or tenant_id
     filter_expr = None
     if effective_tenant:
-        tenant_record_id = await public_id_to_record_id(
-            pb, "tenants", "tenant_id", effective_tenant, ctx.token
-        )
-        filter_expr = f'tenant_id="{tenant_record_id}"'
+        tenant_pb_id = await tenant_record_id(pb, ctx.token, effective_tenant)
+        filter_expr = f'tenant_id="{tenant_pb_id}"'
     result = await pb.list_records(
         collection=COLLECTION,
         token=ctx.token,
@@ -120,9 +123,7 @@ async def create_site(
         raise HTTPException(
             status_code=403, detail="Client access requires tenant_id"
         )
-    tenant_record_id = await public_id_to_record_id(
-        pb, "tenants", "tenant_id", tenant, ctx.token
-    )
+    tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
     template_record_id = await public_id_to_record_id(
         pb, "templates", "template_id", body.template_id, ctx.token
     )
@@ -132,7 +133,7 @@ async def create_site(
     bucket_name = sanitize_bucket_name(body.site_id)
     data: Dict[str, Any] = {
         "site_id": body.site_id,
-        "tenant_id": tenant_record_id,
+        "tenant_id": tenant_pb_id,
         "template_id": template_record_id,
         "domain": body.domain,
         "status": body.status or "draft",

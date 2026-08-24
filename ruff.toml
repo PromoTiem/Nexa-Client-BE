@@ -1,0 +1,41 @@
+target-version = "py312"
+
+[lint]
+select = [
+    "F",     # pyflakes
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "RET",   # flake8-return
+    "RUF",   # ruff-specific rules
+    "BLE",   # flake8-blind-except
+    "PTH",   # flake8-use-pathlib
+]
+
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "BLE001", # blind except (intentional in some places)
+    "SIM105", # use contextlib.suppress
+    "RET505", # else after return
+    "RET504", # unnecessary assignment before return
+    "B008",   # Depends() in function args (standard FastAPI pattern)
+    "B904",   # raise ... from err (intentional in some places)
+    "B023",   # loop variable binding (intentional in retry logic)
+    "PTH",    # pathlib suggestions (os.path is fine in existing code)
+    "UP042",  # StrEnum (str+Enum pattern is fine for backward compat)
+    "UP046",  # Generic class type parameters (Pydantic兼容)
+    "RUF005", # list concatenation style
+    "RUF013", # implicit Optional (handled by existing Optional usage)
+    "SIM102", # nested if (readability preference)
+]
+
+[lint.isort]
+known-first-party = ["app", "tests"]
+
+[format]
+quote-style = "double"

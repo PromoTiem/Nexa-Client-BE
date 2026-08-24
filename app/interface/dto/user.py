@@ -1,6 +1,6 @@
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.interface.dto.common import PaginatedResponse
 
@@ -9,7 +9,7 @@ UserStatus = Literal["active", "inactive", "pending"]
 
 
 class UserCreateRequest(BaseModel):
-    email: str
+    email: EmailStr
     name: Optional[str] = None
     phone: Optional[str] = None
     tenant_id: Optional[str] = None

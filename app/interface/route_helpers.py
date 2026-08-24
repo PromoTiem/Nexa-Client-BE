@@ -16,6 +16,56 @@ def validate_id(value: str, name: str = "id") -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {name} format")
 
 
+# ----- filter sanitization -------------------------------------------------- #
+
+_FILTER_UNSAFE_RE = re.compile(r'["\\]')
+
+
+def sanitize_filter_value(value: str) -> str:
+    """Escape double quotes and backslashes in filter values to prevent injection."""
+    return _FILTER_UNSAFE_RE.sub(lambda m: "\\" + m.group(0), value)
+
+
+# ----- sort validation -------------------------------------------------- #
+
+_SORT_FIELD_RE = re.compile(r"^-?[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_sort(value: str, allowed_fields: Optional[List[str]] = None) -> str:
+    """Validate sort parameter to prevent injection.
+
+    Args:
+        value: The sort string to validate (e.g., "-created_at" or "name")
+        allowed_fields: Optional list of allowed field names. If provided,
+                       the sort field must be in this list.
+
+    Returns:
+        The validated sort string.
+
+    Raises:
+        HTTPException: 400 if the sort format is invalid.
+    """
+    parts = value.split(",")
+    validated_parts = []
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        field = part.lstrip("-")
+
+        if not _SORT_FIELD_RE.match(part):
+            raise HTTPException(status_code=400, detail=f"Invalid sort format: {part}")
+
+        if allowed_fields and field not in allowed_fields:
+            raise HTTPException(status_code=400, detail=f"Invalid sort field: {field}")
+
+        validated_parts.append(part)
+
+    return ",".join(validated_parts) if validated_parts else "-created_at"
+
+
 # ----- filter building -------------------------------------------------- #
 
 def build_filter(parts: List[str]) -> Optional[str]:
@@ -79,6 +129,52 @@ async def ensure_file_tenant(
     if not site_id:
         return
     await ensure_site_tenant(pb, site_id, auth)
+
+
+async def tenant_record_id(
+    pb: PocketBaseClient,
+    token: str,
+    tenant_id: Optional[str],
+) -> str:
+    """Resolve the public business ``tenant_id`` to its internal PocketBase record id.
+
+    Raises 403 when no tenant is set, so tenant-scoped routes fail closed rather
+    than silently dropping the isolation boundary.
+    """
+    if not tenant_id:
+        raise HTTPException(
+            status_code=403, detail="Client access requires tenant_id"
+        )
+    return await public_id_to_record_id(pb, "tenants", "tenant_id", tenant_id, token)
+
+
+async def tenant_filter(
+    pb: PocketBaseClient,
+    token: str,
+    tenant_id: Optional[str],
+) -> str:
+    """Build a PocketBase filter clause scoping records to the caller's tenant.
+
+    Content collections (templates/styles/blocks/pages/sections) store
+    ``tenant_id`` as the **internal PocketBase record id**, so the public
+    business ``tenant_id`` is resolved first via ``tenant_record_id``.
+
+    Fails closed: when no tenant is set the caller is not allowed an unscoped
+    view, so a 403 is raised instead of returning an unrestricted filter.
+    """
+    record_id = await tenant_record_id(pb, token, tenant_id)
+    return f'tenant_id="{record_id}"'
+
+
+def combine_filter(base: str, tenant_clause: Optional[str]) -> str:
+    """AND a base filter expression with a tenant clause, parenthesizing the base.
+
+    Used by tenant-scoped GET handlers so the tenant condition cannot be escaped by
+    operator precedence in the base expression.
+    """
+    if tenant_clause:
+        return f"({base}) && {tenant_clause}"
+    return base
 
 
 async def public_id_to_record_id(

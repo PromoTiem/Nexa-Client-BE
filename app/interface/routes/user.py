@@ -21,7 +21,7 @@ from app.interface.dto.user import (
     UserUpdateRequest,
 )
 from app.interface.rbac import Permission, UserRole, check_role_permission, enforce_permission
-from app.interface.route_helpers import build_filter, validate_id
+from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
 COLLECTION = "users"
 
@@ -37,7 +37,7 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         avatar=record.get("avatar", ""),
         phone=record.get("phone", ""),
         tenant_id=record.get("tenant_id", ""),
-        role=record.get("role", "member"),
+        role=record.get("role", "guest"),
         status=record.get("status", "active"),
         first_auth=record.get("first_auth", False),
         last_login=record.get("last_login", ""),
@@ -140,11 +140,14 @@ async def list_users(
 
     filter_parts = [f'tenant_id="{tenant}"']
     if status:
-        filter_parts.append(f'status="{status}"')
+        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     if role:
-        filter_parts.append(f'role="{role}"')
+        filter_parts.append(f'role="{sanitize_filter_value(role)}"')
     if search:
-        filter_parts.append(f'(name~"{search}" || email~"{search}")')
+        sanitized_search = sanitize_filter_value(search)
+        filter_parts.append(
+            f'(name~"{sanitized_search}" || email~"{sanitized_search}")'
+        )
 
     filter_expr = build_filter(filter_parts)
 
