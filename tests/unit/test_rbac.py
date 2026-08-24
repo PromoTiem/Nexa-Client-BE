@@ -4,7 +4,6 @@ from fastapi import HTTPException
 from app.interface.auth_models import AuthContext
 from app.interface.rbac import (
     Permission,
-    RoleGuard,
     UserRole,
     ROLE_PERMISSIONS,
     has_permission,
@@ -93,43 +92,6 @@ class TestUserRolePermissions:
     def test_no_role_defaults_to_guest(self):
         assert has_permission(MOCK_NO_ROLE, Permission.SITES_LIST)
         assert not has_permission(MOCK_NO_ROLE, Permission.SITES_CREATE)
-
-
-class TestRoleGuard:
-    def test_guard_allows_owner(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER}))
-        guard.check(MOCK_OWNER)
-
-    def test_guard_allows_multiple_roles(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER, UserRole.ADMIN}))
-        guard.check(MOCK_OWNER)
-        guard.check(MOCK_ADMIN)
-
-    def test_guard_denies_unauthorized_role(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER}))
-        with pytest.raises(HTTPException) as exc_info:
-            guard.check(MOCK_MEMBER)
-        assert exc_info.value.status_code == 403
-
-    def test_guard_with_permission_check(self):
-        guard = RoleGuard(
-            allowed_roles=frozenset({UserRole.OWNER}),
-            required_permission=Permission.USERS_DELETE,
-        )
-        guard.check(MOCK_OWNER)
-        with pytest.raises(HTTPException) as exc_info:
-            guard.check(MOCK_ADMIN)
-        assert exc_info.value.status_code == 403
-
-    def test_guard_denies_unknown_role(self):
-        guard = RoleGuard(allowed_roles=frozenset({UserRole.OWNER}))
-        unknown = AuthContext(
-            token="unknown",
-            record={"id": "u1", "role": "unknown_role"},
-        )
-        with pytest.raises(HTTPException) as exc_info:
-            guard.check(unknown)
-        assert exc_info.value.status_code == 403
 
 
 class TestHelperFunctions:

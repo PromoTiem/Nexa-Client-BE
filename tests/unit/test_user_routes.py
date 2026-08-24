@@ -92,7 +92,7 @@ class TestRecordToResponse:
         minimal = {"id": "u1", "email": "a@b.com"}
         result = _record_to_response(minimal)
         assert result.name == ""
-        assert result.role == "member"
+        assert result.role == "guest"
         assert result.status == "active"
         assert result.metadata == {}
 

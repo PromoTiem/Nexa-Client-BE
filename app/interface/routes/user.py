@@ -37,7 +37,7 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         avatar=record.get("avatar", ""),
         phone=record.get("phone", ""),
         tenant_id=record.get("tenant_id", ""),
-        role=record.get("role", "member"),
+        role=record.get("role", "guest"),
         status=record.get("status", "active"),
         first_auth=record.get("first_auth", False),
         last_login=record.get("last_login", ""),

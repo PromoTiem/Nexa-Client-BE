@@ -81,6 +81,52 @@ async def ensure_file_tenant(
     await ensure_site_tenant(pb, site_id, auth)
 
 
+async def tenant_record_id(
+    pb: PocketBaseClient,
+    token: str,
+    tenant_id: Optional[str],
+) -> str:
+    """Resolve the public business ``tenant_id`` to its internal PocketBase record id.
+
+    Raises 403 when no tenant is set, so tenant-scoped routes fail closed rather
+    than silently dropping the isolation boundary.
+    """
+    if not tenant_id:
+        raise HTTPException(
+            status_code=403, detail="Client access requires tenant_id"
+        )
+    return await public_id_to_record_id(pb, "tenants", "tenant_id", tenant_id, token)
+
+
+async def tenant_filter(
+    pb: PocketBaseClient,
+    token: str,
+    tenant_id: Optional[str],
+) -> str:
+    """Build a PocketBase filter clause scoping records to the caller's tenant.
+
+    Content collections (templates/styles/blocks/pages/sections) store
+    ``tenant_id`` as the **internal PocketBase record id**, so the public
+    business ``tenant_id`` is resolved first via ``tenant_record_id``.
+
+    Fails closed: when no tenant is set the caller is not allowed an unscoped
+    view, so a 403 is raised instead of returning an unrestricted filter.
+    """
+    record_id = await tenant_record_id(pb, token, tenant_id)
+    return f'tenant_id="{record_id}"'
+
+
+def combine_filter(base: str, tenant_clause: Optional[str]) -> str:
+    """AND a base filter expression with a tenant clause, parenthesizing the base.
+
+    Used by tenant-scoped GET handlers so the tenant condition cannot be escaped by
+    operator precedence in the base expression.
+    """
+    if tenant_clause:
+        return f"({base}) && {tenant_clause}"
+    return base
+
+
 async def public_id_to_record_id(
     pb: PocketBaseClient,
     collection: str,

@@ -18,8 +18,9 @@ from app.interface.dto.build import (
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     build_filter,
-    public_id_to_record_id,
     record_id_to_public_id,
+    tenant_filter,
+    tenant_record_id,
     validate_id,
 )
 
@@ -88,10 +89,8 @@ async def list_builds(
     enforce_permission(ctx.auth, Permission.BUILDS_LIST)
     filter_parts = []
     if ctx.tenant_id:
-        tenant_record_id = await public_id_to_record_id(
-            pb, "tenants", "tenant_id", ctx.tenant_id, ctx.token
-        )
-        filter_parts.append(f'tenant_id="{tenant_record_id}"')
+        tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
+        filter_parts.append(tenant_clause)
     if site_id:
         filter_parts.append(f'site_id="{site_id}"')
     if status:
@@ -149,9 +148,7 @@ async def create_build(
             status_code=403, detail="Client access requires tenant_id"
         )
 
-    tenant_record_id = await public_id_to_record_id(
-        pb, "tenants", "tenant_id", tenant, ctx.token
-    )
+    tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
 
     site = await pb.find_one_by_filter(
         collection="sites",
@@ -166,7 +163,7 @@ async def create_build(
         "site_id": body.site_id,
         "status": "queued",
         "description": "Manual build",
-        "tenant_id": tenant_record_id,
+        "tenant_id": tenant_pb_id,
     }
     if body.template_id:
         validate_id(body.template_id, "template_id")

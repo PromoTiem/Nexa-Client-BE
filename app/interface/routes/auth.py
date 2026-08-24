@@ -1,5 +1,7 @@
 from typing import Optional
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -71,7 +73,6 @@ async def forgot_password(
     user_record = users["items"][0]
 
     # 3. Generate temp password
-    import secrets
     temp_password = secrets.token_urlsafe(12)
 
     # 4. Update user
