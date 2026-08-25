@@ -57,9 +57,10 @@ class PocketBaseClient:
 
     def _get_auth_headers(self, token: str | None = None) -> dict[str, str]:
         if token:
-            return {"Authorization": token}
+            auth_value = token if token.startswith("Bearer ") else f"Bearer {token}"
+            return {"Authorization": auth_value}
         if self._static_token:
-            return {"x_api_be_token": self._static_token}
+            return {"Authorization": f"Bearer {self._static_token}"}
         raise HTTPException(
             status_code=401,
             detail="No token provided and no static token set",

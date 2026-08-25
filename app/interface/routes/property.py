@@ -9,6 +9,7 @@ from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     TenantContext,
     get_pocketbase_client,
+    get_static_pocketbase_client,
     get_tenant_context,
 )
 from app.interface.dto.property import (
@@ -301,18 +302,16 @@ async def delete_property(
 async def create_public_property(
     site_id: str,
     body: PropertyCreateRequest,
-    ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_static_pocketbase_client),
 ) -> PropertyResponse:
     validate_id(site_id, "site_id")
     validate_id(body.property_id, "property_id")
-    await ctx.enforce_site(pb, site_id)
 
     service = PropertyService()
     record = await service.create_property(
         pb=pb,
-        token=ctx.token,
-        user_id=ctx.user_id,
+        token=pb._static_token,
+        user_id="",
         site_id=site_id,
         data={
             "property_id": body.property_id,

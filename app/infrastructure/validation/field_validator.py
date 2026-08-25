@@ -59,6 +59,13 @@ def _validate_number_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
+    if isinstance(value, str):
+        try:
+            value = float(value) if "." in value else int(value)
+            field["value"] = value
+        except (ValueError, TypeError):
+            errors.append(f"Field '{field['key']}': number value must be numeric")
+            return
     if not isinstance(value, (int, float)):
         errors.append(f"Field '{field['key']}': number value must be numeric")
         return
@@ -182,6 +189,14 @@ def _validate_boolean_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
+    if isinstance(value, str):
+        lower = value.lower()
+        if lower in ("true", "1", "yes"):
+            field["value"] = True
+            return
+        if lower in ("false", "0", "no"):
+            field["value"] = False
+            return
     if not isinstance(value, bool):
         errors.append(f"Field '{field['key']}': boolean value must be true or false")
 

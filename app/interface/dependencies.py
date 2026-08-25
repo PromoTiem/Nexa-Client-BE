@@ -57,6 +57,30 @@ def get_storage_client(
     )
 
 
+async def get_static_pocketbase_client(
+    settings: Settings = Depends(get_settings),
+) -> PocketBaseClient:
+    """PB client authenticated as admin for public routes (no user auth)."""
+    pb = PocketBaseClient(
+        base_url=settings.pocketbase_url,
+        timeout=settings.pocketbase_timeout,
+        max_retries=settings.pocketbase_max_retries,
+        retry_backoff=settings.pocketbase_retry_backoff,
+    )
+    auth_info = await pb.auth_with_password(
+        collection=settings.pocketbase_auth_collection,
+        identity=settings.pocketbase_admin_email,
+        password=settings.pocketbase_admin_password,
+    )
+    return PocketBaseClient(
+        base_url=settings.pocketbase_url,
+        static_token=auth_info["token"],
+        timeout=settings.pocketbase_timeout,
+        max_retries=settings.pocketbase_max_retries,
+        retry_backoff=settings.pocketbase_retry_backoff,
+    )
+
+
 def get_media_service(
     settings: Settings = Depends(get_settings),
     storage: StorageClient = Depends(get_storage_client),
