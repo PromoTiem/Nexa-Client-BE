@@ -34,7 +34,7 @@ async def migrate() -> None:
         # 1. Authenticate as admin
         print("Authenticating as admin...")
         auth_resp = await client.post(
-            f"{base_url}/api/admins/auth-with-password",
+            f"{base_url}/api/collections/_superusers/auth-with-password",
             json={
                 "identity": settings.pocketbase_admin_email,
                 "password": settings.pocketbase_admin_password,
