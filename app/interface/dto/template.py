@@ -16,7 +16,7 @@ class TemplateResponse(BaseModel):
     page_ids: Optional[List[str]] = None
     version: Optional[int] = None
     is_valid: Optional[bool] = None
-    is_default: Optional[bool] = False
+    default: Optional[bool] = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_by: Optional[str] = None

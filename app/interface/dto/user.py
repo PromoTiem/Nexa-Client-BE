@@ -6,7 +6,7 @@ from app.interface.dto.common import PaginatedResponse
 from app.interface.dto.tenant import TenantResponse
 
 UserRole = Literal["owner", "admin", "member", "guest"]
-UserStatus = Literal["active", "inactive", "pending"]
+UserStatus = Literal["active", "inactive", "suspended"]
 
 
 class UserCreateRequest(BaseModel):

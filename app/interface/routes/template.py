@@ -38,7 +38,7 @@ def _record_to_response(record: Dict[str, Any]) -> TemplateResponse:
         page_ids=record.get("page_ids") or None,
         version=record.get("version") or None,
         is_valid=record.get("is_valid") or None,
-        is_default=record.get("default") or False,
+        default=record.get("default") or False,
         created_at=record.get("created_at"),
         updated_at=record.get("updated_at"),
         created_by=record.get("created_by"),

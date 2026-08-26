@@ -10,5 +10,8 @@ class TenantResponse(BaseModel):
     plan: Optional[str] = None
     status: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
-    created: Optional[str] = None
-    updated: Optional[str] = None
+    default: Optional[bool] = False
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None

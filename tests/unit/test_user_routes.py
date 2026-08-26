@@ -102,6 +102,18 @@ class TestGetMyProfile:
     async def test_returns_current_user_profile(self):
         pb = AsyncMock()
         pb.find_record_by_id = AsyncMock(return_value=MOCK_USER_RECORD)
+        pb.find_one_by_filter = AsyncMock(return_value={
+            "id": "tenant_abc",
+            "tenant_id": "tenant_abc",
+            "name": "Test Tenant",
+            "plan": "free",
+            "status": "active",
+            "default": False,
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "updated_at": "2026-01-01T00:00:00.000Z",
+            "created_by": "user_123",
+            "updated_by": "user_123",
+        })
 
         result = await get_my_profile(ctx=_tenant_ctx(MOCK_ADMIN_AUTH), pb=pb)
 

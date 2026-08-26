@@ -79,8 +79,11 @@ async def get_my_profile(
                 plan=tenant_record.get("plan"),
                 status=tenant_record.get("status"),
                 metadata=tenant_record.get("metadata"),
-                created=tenant_record.get("created"),
-                updated=tenant_record.get("updated"),
+                default=tenant_record.get("default", False),
+                created_at=tenant_record.get("created_at"),
+                updated_at=tenant_record.get("updated_at"),
+                created_by=tenant_record.get("created_by"),
+                updated_by=tenant_record.get("updated_by"),
             )
         except HTTPException:
             logger.warning("tenant not found", extra={"tenant_id": ctx.tenant_id})
