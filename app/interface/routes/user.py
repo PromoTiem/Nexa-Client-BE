@@ -20,6 +20,7 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
+from app.interface.dto.tenant import TenantResponse
 from app.interface.rbac import Permission, UserRole, check_role_permission, enforce_permission
 from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
@@ -29,7 +30,7 @@ router = APIRouter()
 logger = get_logger("user_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> UserResponse:
+def _record_to_response(record: Dict[str, Any], tenant: Optional[TenantResponse] = None) -> UserResponse:
     return UserResponse(
         id=record["id"],
         email=record.get("email", ""),
@@ -37,8 +38,10 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         avatar=record.get("avatar", ""),
         phone=record.get("phone", ""),
         tenant_id=record.get("tenant_id", ""),
+        tenant=tenant,
         role=record.get("role", "guest"),
         status=record.get("status", "active"),
+        is_deleted=record.get("is_deleted", False),
         first_auth=record.get("first_auth", False),
         last_login=record.get("last_login", ""),
         metadata=record.get("metadata") or {},
@@ -60,7 +63,29 @@ async def get_my_profile(
         record_id=ctx.user_id,
         token=ctx.token,
     )
-    return _record_to_response(record)
+
+    tenant: Optional[TenantResponse] = None
+    if ctx.tenant_id:
+        try:
+            tenant_record = await pb.find_one_by_filter(
+                collection="tenants",
+                filter_expr=f'tenant_id="{ctx.tenant_id}"',
+                token=ctx.token,
+            )
+            tenant = TenantResponse(
+                id=tenant_record["id"],
+                tenant_id=tenant_record.get("tenant_id", ""),
+                name=tenant_record.get("name"),
+                plan=tenant_record.get("plan"),
+                status=tenant_record.get("status"),
+                metadata=tenant_record.get("metadata"),
+                created=tenant_record.get("created"),
+                updated=tenant_record.get("updated"),
+            )
+        except HTTPException:
+            logger.warning("tenant not found", extra={"tenant_id": ctx.tenant_id})
+
+    return _record_to_response(record, tenant=tenant)
 
 
 @router.patch("/me", response_model=UserResponse)
@@ -294,7 +319,7 @@ async def delete_user(
     await pb.update_record(
         collection=COLLECTION,
         record_id=user_id,
-        data={"status": "inactive"},
+        data={"status": "inactive", "is_deleted": True},
         token=ctx.token,
     )
 
