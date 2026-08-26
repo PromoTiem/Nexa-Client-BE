@@ -1,15 +1,15 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
-from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     TenantContext,
     get_pocketbase_client,
+    get_static_pocketbase_client,
     get_tenant_context,
 )
 from app.interface.dto.property import (
@@ -34,7 +34,7 @@ public_property_router = APIRouter()
 logger = get_logger("property_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> PropertyResponse:
+def _record_to_response(record: dict[str, Any]) -> PropertyResponse:
     return PropertyResponse(
         id=record["id"],
         property_id=record["property_id"],
@@ -120,11 +120,11 @@ async def list_properties(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-ordering"),
-    type: Optional[str] = Query(None),
-    subtype: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    slug: Optional[str] = Query(None),
+    type: str | None = Query(None),
+    subtype: str | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
+    slug: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PropertyListResponse:
@@ -135,7 +135,7 @@ async def list_properties(
         sort, allowed_fields=["ordering", "created_at", "updated_at", "name", "status"]
     )
 
-    filter_parts: List[str] = [
+    filter_parts: list[str] = [
         f'site_id="{site_id}"',
         SOFT_DELETE_FILTER,
     ]
@@ -216,7 +216,7 @@ async def update_property(
     )
     await ctx.enforce_site(pb, existing["site_id"])
 
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if body.type is not None:
         updates["type"] = body.type
     if body.subtype is not None:
@@ -300,25 +300,17 @@ async def delete_property(
     status_code=201,
 )
 async def create_public_property(
-    request: Request,
     site_id: str,
     body: PropertyCreateRequest,
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
-    settings: Settings = Depends(get_settings),
+    pb: PocketBaseClient = Depends(get_static_pocketbase_client),
 ) -> PropertyResponse:
     validate_id(site_id, "site_id")
     validate_id(body.property_id, "property_id")
 
-    admin_data = await pb.auth_with_password(
-        collection=settings.pocketbase_auth_collection,
-        identity=settings.pocketbase_admin_email,
-        password=settings.pocketbase_admin_password,
-    )
-
     service = PropertyService()
     record = await service.create_property(
         pb=pb,
-        token=admin_data["token"],
+        token=pb._static_token,
         user_id="",
         site_id=site_id,
         data={

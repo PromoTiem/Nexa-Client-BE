@@ -1,12 +1,15 @@
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import HTTPException
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
-from app.infrastructure.validation.field_validator import validate_fields, validate_groups
+from app.infrastructure.validation.field_validator import (
+    validate_fields,
+    validate_groups,
+)
 
 logger = get_logger("property_service")
 
@@ -14,7 +17,7 @@ COLLECTION = "properties"
 CATEGORY_TYPE = "category"
 
 
-def _dump_models(items: List[Any]) -> List[Any]:
+def _dump_models(items: list[Any]) -> list[Any]:
     if items and hasattr(items[0], "model_dump"):
         return [i.model_dump(mode="python") for i in items]
     return items
@@ -27,7 +30,7 @@ class PropertyService:
         token: str,
         site_id: str,
         slug: str,
-        exclude_property_id: Optional[str] = None,
+        exclude_property_id: str | None = None,
     ) -> None:
         """Validate slug is unique within a site (excluding soft-deleted)."""
         if not slug:
@@ -58,7 +61,7 @@ class PropertyService:
         pb: PocketBaseClient,
         token: str,
         site_id: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> None:
         """Validate category-specific rules."""
         if data.get("type") != CATEGORY_TYPE:
@@ -72,7 +75,10 @@ class PropertyService:
             )
 
         groups = data.get("groups", [])
-        dumped_groups = [g.model_dump(mode="python") if hasattr(g, "model_dump") else g for g in groups]
+        dumped_groups = [
+            g.model_dump(mode="python") if hasattr(g, "model_dump") else g
+            for g in groups
+        ]
         for group in dumped_groups:
             if group.get("key") == "children":
                 for entry in group.get("entries", []):
@@ -98,14 +104,28 @@ class PropertyService:
         token: str,
         user_id: str,
         site_id: str,
-        data: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
         fields_data = data.get("fields", [])
         groups_data = data.get("groups", [])
 
-        errors: List[str] = []
-        errors.extend(validate_fields([f.model_dump(mode="python") if hasattr(f, "model_dump") else f for f in fields_data]))
-        errors.extend(validate_groups([g.model_dump(mode="python") if hasattr(g, "model_dump") else g for g in groups_data]))
+        errors: list[str] = []
+        errors.extend(
+            validate_fields(
+                [
+                    f.model_dump(mode="python") if hasattr(f, "model_dump") else f
+                    for f in fields_data
+                ]
+            )
+        )
+        errors.extend(
+            validate_groups(
+                [
+                    g.model_dump(mode="python") if hasattr(g, "model_dump") else g
+                    for g in groups_data
+                ]
+            )
+        )
         if errors:
             raise HTTPException(
                 status_code=400,
@@ -118,7 +138,7 @@ class PropertyService:
 
         await self._validate_category(pb, token, site_id, data)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         published_at = now if data.get("status") == "published" else None
 
         record = await pb.create_record(
@@ -135,8 +155,14 @@ class PropertyService:
                 "featured_image": data.get("featured_image"),
                 "seo": data.get("seo"),
                 "published_at": published_at,
-                "fields": [f.model_dump(mode="python") if hasattr(f, "model_dump") else f for f in fields_data],
-                "groups": [g.model_dump(mode="python") if hasattr(g, "model_dump") else g for g in groups_data],
+                "fields": [
+                    f.model_dump(mode="python") if hasattr(f, "model_dump") else f
+                    for f in fields_data
+                ],
+                "groups": [
+                    g.model_dump(mode="python") if hasattr(g, "model_dump") else g
+                    for g in groups_data
+                ],
                 "metadata": data.get("metadata"),
                 "ordering": data.get("ordering", 0),
             },
@@ -150,9 +176,9 @@ class PropertyService:
         pb: PocketBaseClient,
         token: str,
         user_id: str,
-        record: Dict[str, Any],
-        updates: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        record: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
         if "fields" in updates and updates["fields"] is not None:
             fields_data = updates["fields"]
             dumped = _dump_models(fields_data)
@@ -175,17 +201,23 @@ class PropertyService:
                 )
             updates["groups"] = dumped
 
-        if "slug" in updates and updates["slug"]:
+        if updates.get("slug"):
             site_id = record.get("site_id")
             property_id = record.get("property_id")
-            await self._check_slug_unique(pb, token, site_id, updates["slug"], exclude_property_id=property_id)
+            await self._check_slug_unique(
+                pb, token, site_id, updates["slug"], exclude_property_id=property_id
+            )
 
         if record.get("type") == CATEGORY_TYPE and "groups" in updates:
             site_id = record.get("site_id")
             await self._validate_category(pb, token, site_id, {**record, **updates})
 
-        if "status" in updates and updates["status"] == "published" and record.get("status") != "published":
-            updates["published_at"] = datetime.now(timezone.utc).isoformat()
+        if (
+            "status" in updates
+            and updates["status"] == "published"
+            and record.get("status") != "published"
+        ):
+            updates["published_at"] = datetime.now(UTC).isoformat()
 
         if not updates:
             return record
@@ -204,9 +236,9 @@ class PropertyService:
         pb: PocketBaseClient,
         token: str,
         user_id: str,
-        record: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        now = datetime.now(timezone.utc).isoformat()
+        record: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
         return await pb.update_record(
             collection=COLLECTION,
             record_id=record["id"],

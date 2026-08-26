@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -11,39 +11,39 @@ class SiteCreateRequest(BaseModel):
     site_id: str
     template_id: str
     domain: str
-    config: Optional[Dict[str, Any]] = None
-    status: Optional[SiteStatus] = None
-    default: Optional[bool] = False
+    config: dict[str, Any] | None = None
+    status: SiteStatus | None = None
+    default: bool | None = False
 
 
 class SiteUpdateRequest(BaseModel):
-    template_id: Optional[str] = None
-    domain: Optional[str] = None
-    domain_id: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    status: Optional[SiteStatus] = None
-    default: Optional[bool] = None
+    template_id: str | None = None
+    domain: str | None = None
+    domain_id: str | None = None
+    config: dict[str, Any] | None = None
+    status: SiteStatus | None = None
+    default: bool | None = None
 
 
 class SiteResponse(BaseModel):
     id: str
     site_id: str
-    tenant_id: Optional[str] = None
-    template_id: Optional[str] = None
-    domain: Optional[str] = None
-    domain_id: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    status: Optional[SiteStatus] = None
-    bucket_name: Optional[str] = None
-    bucket_description: Optional[str] = None
+    tenant_id: str | None = None
+    template_id: str | None = None
+    domain: str | None = None
+    domain_id: str | None = None
+    config: dict[str, Any] | None = None
+    status: SiteStatus | None = None
+    bucket_name: str | None = None
+    bucket_description: str | None = None
     bucket_public: bool = False
-    serve_status: Optional[ServeStatus] = None
-    serve_stage_log: Optional[Dict[str, str]] = None
-    default: Optional[bool] = False
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    created_by: Optional[str] = None
-    updated_by: Optional[str] = None
+    serve_status: ServeStatus | None = None
+    serve_stage_log: dict[str, str] | None = None
+    default: bool | None = False
+    created_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
 
 
 SiteListResponse = PaginatedResponse[SiteResponse]

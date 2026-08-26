@@ -82,7 +82,7 @@ class TestAssertTransition:
 
 class TestServeTransitions:
     def test_all_transitions_are_valid_sets(self):
-        for current, allowed in SERVE_TRANSITIONS.items():
+        for _current, allowed in SERVE_TRANSITIONS.items():
             assert isinstance(allowed, set)
             for target in allowed:
                 assert isinstance(target, str) or target is None

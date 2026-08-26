@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Response
 
@@ -27,7 +27,7 @@ from app.interface.route_helpers import validate_id
 router = APIRouter()
 
 
-def _record_to_response(record: Dict[str, Any]) -> MediaResponse:
+def _record_to_response(record: dict[str, Any]) -> MediaResponse:
     return MediaResponse(
         file_id=record["file_id"],
         site_id=record["site_id"],
@@ -91,16 +91,14 @@ async def confirm_upload(
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, ctx.token)
     await ctx.enforce_file(pb, record)
-    record = await service.confirm_upload(
-        file_id, pb, ctx.token, ctx.user_id
-    )
+    record = await service.confirm_upload(file_id, pb, ctx.token, ctx.user_id)
     return _record_to_response(record)
 
 
 @router.get("", response_model=MediaListResponse)
 async def list_media(
     site_id: str = Query(...),
-    page_id: Optional[str] = Query(None),
+    page_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     ctx: TenantContext = Depends(get_tenant_context),
@@ -112,9 +110,7 @@ async def list_media(
     if page_id is not None:
         validate_id(page_id, "page_id")
     await ctx.enforce_site(pb, site_id)
-    result = await service.list_media(
-        site_id, page_id, page, limit, pb, ctx.token
-    )
+    result = await service.list_media(site_id, page_id, page, limit, pb, ctx.token)
     items = [_record_to_response(r) for r in result.get("items", [])]
     return MediaListResponse(
         items=items,
@@ -150,12 +146,8 @@ async def get_download_url(
     validate_id(file_id, "file_id")
     record = await service.get_record(file_id, pb, ctx.token)
     await ctx.enforce_file(pb, record)
-    download_url, expires_at = await service.get_download_url(
-        file_id, pb, ctx.token
-    )
-    return DownloadUrlResponse(
-        download_url=download_url, expires_at=expires_at
-    )
+    download_url, expires_at = await service.get_download_url(file_id, pb, ctx.token)
+    return DownloadUrlResponse(download_url=download_url, expires_at=expires_at)
 
 
 @router.patch("/{file_id}", response_model=MediaResponse)
@@ -168,7 +160,7 @@ async def update_media(
 ) -> MediaResponse:
     enforce_permission(ctx.auth, Permission.MEDIA_UPLOAD)
     validate_id(file_id, "file_id")
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if body.name is not None:
         updates["name"] = body.name
     if body.is_default is not None:
@@ -185,9 +177,7 @@ async def update_media(
         return _record_to_response(record)
     record = await service.get_record(file_id, pb, ctx.token)
     await ctx.enforce_file(pb, record)
-    record = await service.update_metadata(
-        file_id, updates, pb, ctx.token, ctx.user_id
-    )
+    record = await service.update_metadata(file_id, updates, pb, ctx.token, ctx.user_id)
     return _record_to_response(record)
 
 
@@ -214,7 +204,7 @@ async def bulk_delete_media(
     service: MediaService = Depends(get_media_service),
 ) -> BulkDeleteResponse:
     enforce_permission(ctx.auth, Permission.MEDIA_DELETE)
-    results = await service.bulk_delete(body.file_ids, pb, ctx.token, ctx.user_id, auth=ctx.auth)
-    return BulkDeleteResponse(
-        results=[ItemResult(**r) for r in results]
+    results = await service.bulk_delete(
+        body.file_ids, pb, ctx.token, ctx.user_id, auth=ctx.auth
     )
+    return BulkDeleteResponse(results=[ItemResult(**r) for r in results])

@@ -27,7 +27,6 @@ from app.interface.dto.serve import (
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     map_site_record,
-    public_id_to_record_id,
     validate_id,
 )
 
@@ -36,18 +35,14 @@ COLLECTION = "sites"
 router = APIRouter()
 
 
-async def _load_site(
-    site_id: str, ctx: TenantContext, pb: PocketBaseClient
-) -> dict:
+async def _load_site(site_id: str, ctx: TenantContext, pb: PocketBaseClient) -> dict:
     validate_id(site_id, "site_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
         filter_expr=f'site_id="{site_id}"',
         token=ctx.token,
     )
-    mapped = await map_site_record(
-        record, ctx.token, pb, fields=("tenant_id",)
-    )
+    mapped = await map_site_record(record, ctx.token, pb, fields=("tenant_id",))
     ctx.enforce_owns(mapped)
     return record
 
@@ -131,6 +126,4 @@ async def get_pipeline(
 ) -> PipelineResponse:
     enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
     record = await _load_site(site_id, ctx, pb)
-    return await serve_service.get_pipeline(
-        pb=pb, site_record=record, token=ctx.token
-    )
+    return await serve_service.get_pipeline(pb=pb, site_record=record, token=ctx.token)
