@@ -78,6 +78,7 @@ def configure_logging(settings: Settings) -> None:
                 JsonFormatter(
                     fmt=_JSON_FORMAT,
                     rename_fields={"levelname": "level", "name": "logger"},
+                    json_ensure_ascii=False,
                 )
             )
             nexa.addHandler(loki)
@@ -91,6 +92,7 @@ def configure_logging(settings: Settings) -> None:
             JsonFormatter(
                 fmt=_JSON_FORMAT,
                 rename_fields={"levelname": "level", "name": "logger"},
+                json_ensure_ascii=False,
             )
         )
         nexa.addHandler(console)
