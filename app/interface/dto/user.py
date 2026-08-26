@@ -3,6 +3,7 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, EmailStr
 
 from app.interface.dto.common import PaginatedResponse
+from app.interface.dto.tenant import TenantResponse
 
 UserRole = Literal["owner", "admin", "member", "guest"]
 UserStatus = Literal["active", "inactive", "pending"]
@@ -45,8 +46,10 @@ class UserResponse(BaseModel):
     avatar: Optional[str] = None
     phone: Optional[str] = None
     tenant_id: str
+    tenant: Optional[TenantResponse] = None
     role: UserRole
     status: UserStatus
+    is_deleted: bool = False
     first_auth: bool = False
     last_login: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
