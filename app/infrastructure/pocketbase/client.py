@@ -175,7 +175,7 @@ class PocketBaseClient:
         email: str,
         password: str,
     ) -> dict[str, Any]:
-        url = f"{self._base_url}/api/admins/auth-with-password"
+        url = f"{self._base_url}/api/collections/_superusers/auth-with-password"
         payload = {"identity": email, "password": password}
 
         async def _do_request() -> httpx.Response:
