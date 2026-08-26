@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.application.services.site_file_service import SiteFileService
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -14,8 +14,7 @@ DEFAULT_ALLOWED_MIME = frozenset(
         "image/svg+xml",
         "application/pdf",
         "application/msword",
-        "application/vnd.openxmlformats-officedocument."
-        "wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
 )
 
@@ -41,14 +40,14 @@ class MediaService(SiteFileService):
         filename: str,
         content_type: str,
         declared_size: int,
-        name: Optional[str],
+        name: str | None,
         is_default: bool,
-        page_id: Optional[str],
+        page_id: str | None,
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str],
-        original_file_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        user_id: str | None,
+        original_file_id: str | None = None,
+    ) -> dict[str, Any]:
         return await self._create_upload(
             site_id=site_id,
             filename=filename,

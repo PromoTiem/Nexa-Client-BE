@@ -1,10 +1,9 @@
 import os
-from typing import Optional
 
 from app.config import get_settings
 
 
-async def get_live_token_or_skip() -> Optional[str]:
+async def get_live_token_or_skip() -> str | None:
     token = os.environ.get("LIVE_AUTH_TOKEN", "")
     if token:
         return token

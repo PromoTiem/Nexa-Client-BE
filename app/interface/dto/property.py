@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, field_validator
 
@@ -12,57 +12,57 @@ class PropertyField(BaseModel):
     value: Any = None
     required: bool = False
     order_index: int = 0
-    placeholder: Optional[str] = None
+    placeholder: str | None = None
     default: Any = None
-    help_text: Optional[str] = None
+    help_text: str | None = None
     hidden: bool = False
     readonly: bool = False
     # Type-specific attributes
-    min_length: Optional[int] = None
-    max_length: Optional[int] = None
-    pattern: Optional[str] = None
-    rows: Optional[int] = None
-    toolbar: Optional[str] = None
-    min: Optional[float] = None
-    max: Optional[float] = None
-    step: Optional[float] = None
-    prefix: Optional[str] = None
-    suffix: Optional[str] = None
-    decimal_places: Optional[int] = None
-    options: Optional[List[str]] = None
-    max_selections: Optional[int] = None
-    min_date: Optional[str] = None
-    max_date: Optional[str] = None
-    show_time: Optional[bool] = None
-    max_size_mb: Optional[float] = None
-    allowed_types: Optional[List[str]] = None
-    aspect_ratio: Optional[str] = None
-    max_images: Optional[int] = None
-    schema_: Optional[Dict[str, Any]] = None
+    min_length: int | None = None
+    max_length: int | None = None
+    pattern: str | None = None
+    rows: int | None = None
+    toolbar: str | None = None
+    min: float | None = None
+    max: float | None = None
+    step: float | None = None
+    prefix: str | None = None
+    suffix: str | None = None
+    decimal_places: int | None = None
+    options: list[str] | None = None
+    max_selections: int | None = None
+    min_date: str | None = None
+    max_date: str | None = None
+    show_time: bool | None = None
+    max_size_mb: float | None = None
+    allowed_types: list[str] | None = None
+    aspect_ratio: str | None = None
+    max_images: int | None = None
+    schema_: dict[str, Any] | None = None
 
 
 class PropertyGroup(BaseModel):
     key: str
     label: str
-    fields: List[PropertyField]
-    entries: List[Dict[str, Any]] = []
-    min_entries: Optional[int] = None
-    max_entries: Optional[int] = None
+    fields: list[PropertyField]
+    entries: list[dict[str, Any]] = []
+    min_entries: int | None = None
+    max_entries: int | None = None
 
 
 class PropertyCreateRequest(BaseModel):
     property_id: str
-    type: Optional[str] = None
-    subtype: Optional[str] = None
+    type: str | None = None
+    subtype: str | None = None
     name: str
-    slug: Optional[str] = None
+    slug: str | None = None
     status: str = "draft"
-    excerpt: Optional[str] = None
-    featured_image: Optional[str] = None
-    seo: Optional[Dict[str, Any]] = None
-    fields: List[PropertyField] = []
-    groups: List[PropertyGroup] = []
-    metadata: Optional[Dict[str, Any]] = None
+    excerpt: str | None = None
+    featured_image: str | None = None
+    seo: dict[str, Any] | None = None
+    fields: list[PropertyField] = []
+    groups: list[PropertyGroup] = []
+    metadata: dict[str, Any] | None = None
     ordering: int = 0
 
     @field_validator("status")
@@ -74,22 +74,22 @@ class PropertyCreateRequest(BaseModel):
 
 
 class PropertyUpdateRequest(BaseModel):
-    type: Optional[str] = None
-    subtype: Optional[str] = None
-    name: Optional[str] = None
-    slug: Optional[str] = None
-    status: Optional[str] = None
-    excerpt: Optional[str] = None
-    featured_image: Optional[str] = None
-    seo: Optional[Dict[str, Any]] = None
-    fields: Optional[List[PropertyField]] = None
-    groups: Optional[List[PropertyGroup]] = None
-    metadata: Optional[Dict[str, Any]] = None
-    ordering: Optional[int] = None
+    type: str | None = None
+    subtype: str | None = None
+    name: str | None = None
+    slug: str | None = None
+    status: str | None = None
+    excerpt: str | None = None
+    featured_image: str | None = None
+    seo: dict[str, Any] | None = None
+    fields: list[PropertyField] | None = None
+    groups: list[PropertyGroup] | None = None
+    metadata: dict[str, Any] | None = None
+    ordering: int | None = None
 
     @field_validator("status")
     @classmethod
-    def validate_status(cls, v: Optional[str]) -> Optional[str]:
+    def validate_status(cls, v: str | None) -> str | None:
         if v is not None and v not in ("draft", "published"):
             raise ValueError("status must be 'draft' or 'published'")
         return v
@@ -99,24 +99,24 @@ class PropertyResponse(BaseModel):
     id: str
     property_id: str
     site_id: str
-    type: Optional[str] = None
-    subtype: Optional[str] = None
+    type: str | None = None
+    subtype: str | None = None
     name: str
-    slug: Optional[str] = None
+    slug: str | None = None
     status: str
-    excerpt: Optional[str] = None
-    featured_image: Optional[str] = None
-    seo: Optional[Dict[str, Any]] = None
-    published_at: Optional[str] = None
-    fields: List[Dict[str, Any]] = []
-    groups: List[Dict[str, Any]] = []
-    metadata: Optional[Dict[str, Any]] = None
+    excerpt: str | None = None
+    featured_image: str | None = None
+    seo: dict[str, Any] | None = None
+    published_at: str | None = None
+    fields: list[dict[str, Any]] = []
+    groups: list[dict[str, Any]] = []
+    metadata: dict[str, Any] | None = None
     ordering: int = 0
-    deleted_at: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    created_by: Optional[str] = None
-    updated_by: Optional[str] = None
+    deleted_at: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
 
 
 PropertyListResponse = PaginatedResponse[PropertyResponse]

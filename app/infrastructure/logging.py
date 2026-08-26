@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from pythonjsonlogger.json import JsonFormatter
 
@@ -60,7 +59,7 @@ def configure_logging(settings: Settings) -> None:
     # Loki handler only - nexa logs go to Loki, NOT to console
     if log_cfg.loki_enabled:
         try:
-            from app.infrastructure.loki_handler import NexaLokiHandler  # noqa
+            from app.infrastructure.loki_handler import NexaLokiHandler
         except ImportError:
             nexa.warning(
                 "logging.loki_enabled is true but python-logging-loki "
@@ -75,10 +74,13 @@ def configure_logging(settings: Settings) -> None:
                 level=level,
             )
             loki._nexa_name = _LOKI_HANDLER_NAME
-            loki.setFormatter(JsonFormatter(
-                fmt=_JSON_FORMAT,
-                rename_fields={"levelname": "level", "name": "logger"},
-            ))
+            loki.setFormatter(
+                JsonFormatter(
+                    fmt=_JSON_FORMAT,
+                    rename_fields={"levelname": "level", "name": "logger"},
+                    json_ensure_ascii=False,
+                )
+            )
             nexa.addHandler(loki)
 
     # Console fallback — when Loki is disabled, send nexa logs to stderr
@@ -86,16 +88,19 @@ def configure_logging(settings: Settings) -> None:
         console = logging.StreamHandler()
         console.setLevel(level)
         console._nexa_name = _CONSOLE_HANDLER_NAME
-        console.setFormatter(JsonFormatter(
-            fmt=_JSON_FORMAT,
-            rename_fields={"levelname": "level", "name": "logger"},
-        ))
+        console.setFormatter(
+            JsonFormatter(
+                fmt=_JSON_FORMAT,
+                rename_fields={"levelname": "level", "name": "logger"},
+                json_ensure_ascii=False,
+            )
+        )
         nexa.addHandler(console)
 
     _CONFIGURED = True
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     if name is None:
         return logging.getLogger(_NEXA_LOGGER)
     return logging.getLogger(f"{_NEXA_LOGGER}.{name}")

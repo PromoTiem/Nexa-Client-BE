@@ -1,10 +1,11 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Tuple, Type
 
 from pydantic_settings import (
-    BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict,
-    YamlConfigSettingsSource
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
 )
 
 _CONFIG_FILE = Path(__file__).resolve().parent.parent / "config.yaml"
@@ -14,7 +15,7 @@ class LoggingSettings(BaseSettings):
     level: str = "INFO"
     loki_enabled: bool = False
     loki_url: str = "http://localhost:3100/loki/api/v1/push"
-    loki_labels: Dict[str, str] = {}
+    loki_labels: dict[str, str] = {}
 
 
 class StorageClientSettings(BaseSettings):
@@ -77,20 +78,19 @@ class Settings(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
-        settings_cls: Type[BaseSettings],
+        settings_cls: type[BaseSettings],
         **kwargs: PydanticBaseSettingsSource,
-    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
         sources: list = [kwargs["init_settings"], kwargs["env_settings"]]
         if _CONFIG_FILE.exists():
-            sources.append(YamlConfigSettingsSource(
-                settings_cls, yaml_file=_CONFIG_FILE))
+            sources.append(
+                YamlConfigSettingsSource(settings_cls, yaml_file=_CONFIG_FILE)
+            )
         return tuple(sources)
 
     @property
-    def cors_origins(self) -> List[str]:
-        return [
-            o.strip() for o in self.allowed_origins.split(",") if o.strip()
-        ]
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
     @property
     def is_development(self) -> bool:

@@ -1,5 +1,3 @@
-from typing import Optional
-
 from app.application.services.utils import SITES_COLLECTION, sanitize_name
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -17,7 +15,7 @@ async def ensure_site_bucket(
     site_id: str,
     pb: PocketBaseClient,
     storage: StorageClient,
-    token: Optional[str] = None,
+    token: str | None = None,
 ) -> str:
     site = await pb.find_one_by_filter(
         collection=SITES_COLLECTION,

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
 class AuthContext:
     token: str
-    record: Dict[str, Any]
+    record: dict[str, Any]
