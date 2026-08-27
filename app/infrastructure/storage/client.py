@@ -190,7 +190,7 @@ class StorageClient:
             "CORSRules": [
                 {
                     "AllowedOrigins": allowed_origins,
-                    "AllowedMethods": ["GET", "HEAD", "OPTIONS"],
+                    "AllowedMethods": ["GET", "HEAD", "OPTIONS", "PUT"],
                     "AllowedHeaders": allowed_headers,
                     "ExposeHeaders": [
                         "Content-Length",

@@ -22,7 +22,7 @@ CORS_CONFIG = {
     "CORSRules": [
         {
             "AllowedOrigins": CORS_ORIGINS,
-            "AllowedMethods": ["GET", "HEAD", "OPTIONS"],
+            "AllowedMethods": ["GET", "HEAD", "OPTIONS", "PUT"],
             "AllowedHeaders": [
                 "Authorization",
                 "Content-Type",
