@@ -34,10 +34,12 @@ class SiteFileService:
         storage_client: StorageClient,
         max_file_bytes: int,
         allowed_mime: frozenset | None = None,
+        site_base_domain: str = "",
     ) -> None:
         self._storage = storage_client
         self._max_file_bytes = max_file_bytes
         self._allowed_mime = allowed_mime or self.DEFAULT_ALLOWED_MIME
+        self._site_base_domain = site_base_domain
         self._logger = get_logger(f"{self._NOUN}_service")
 
     @property
@@ -133,7 +135,9 @@ class SiteFileService:
             )
 
         # 4. ensure bucket exists (creates S3 bucket + updates site if needed)
-        bucket = await ensure_site_bucket(site_id, pb, self._storage, token)
+        bucket = await ensure_site_bucket(
+            site_id, pb, self._storage, token, self._site_base_domain
+        )
 
         # 5. storage mints bucket/key + presigned PUT url
         r = await self._storage.presign_put(

@@ -89,6 +89,7 @@ def get_media_service(
     return MediaService(
         storage_client=storage,
         max_file_bytes=s.max_file_bytes,
+        site_base_domain=settings.site_base_domain,
     )
 
 
@@ -100,6 +101,7 @@ def get_storage_file_service(
     return StorageFileService(
         storage_client=storage,
         max_file_bytes=s.max_file_bytes,
+        site_base_domain=settings.site_base_domain,
     )
 
 

@@ -175,6 +175,42 @@ class StorageClient:
         except _STORAGE_ERRORS as exc:
             _raise_storage_error("set_bucket_public_policy", exc, bucket=bucket)
 
+    async def set_bucket_cors(self, bucket: str, allowed_origins: list[str]) -> None:
+        """Set CORS policy on the bucket so browsers can fetch images cross-origin."""
+        allowed_headers = [
+            "Authorization",
+            "Content-Type",
+            "Content-Length",
+            "Content-Range",
+            "Accept",
+            "Origin",
+            "x-amz-*",
+        ]
+        cors = {
+            "CORSRules": [
+                {
+                    "AllowedOrigins": allowed_origins,
+                    "AllowedMethods": ["GET", "HEAD", "OPTIONS"],
+                    "AllowedHeaders": allowed_headers,
+                    "ExposeHeaders": [
+                        "Content-Length",
+                        "Content-Type",
+                        "Content-Range",
+                    ],
+                    "MaxAgeSeconds": 3600,
+                }
+            ]
+        }
+
+        async def _do_put_cors() -> None:
+            async with self._client() as s3:
+                await s3.put_bucket_cors(Bucket=bucket, CORSConfiguration=cors)
+
+        try:
+            await self._execute_with_retry("set_bucket_cors", _do_put_cors)
+        except _STORAGE_ERRORS as exc:
+            _raise_storage_error("set_bucket_cors", exc, bucket=bucket)
+
     async def head(self, bucket: str, key: str) -> dict[str, Any]:
         async def _do_head() -> dict[str, Any]:
             async with self._client() as s3:

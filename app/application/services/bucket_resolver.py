@@ -16,6 +16,7 @@ async def ensure_site_bucket(
     pb: PocketBaseClient,
     storage: StorageClient,
     token: str | None = None,
+    site_base_domain: str = "",
 ) -> str:
     site = await pb.find_one_by_filter(
         collection=SITES_COLLECTION,
@@ -29,6 +30,12 @@ async def ensure_site_bucket(
     if not s3_exists:
         await storage.create_bucket(bucket_name)
         await storage.set_bucket_public_policy(bucket_name)
+        if site_base_domain:
+            cors_origins = [
+                f"https://{site_base_domain}",
+                f"https://*.{site_base_domain}",
+            ]
+            await storage.set_bucket_cors(bucket_name, cors_origins)
         logger.info(
             "storage bucket created for site",
             extra={"site_id": site_id, "bucket": bucket_name},
@@ -58,12 +65,19 @@ async def ensure_site_bucket(
 async def create_bucket_for_site(
     site_id: str,
     storage: StorageClient,
+    site_base_domain: str = "",
 ) -> None:
     bucket_name = sanitize_bucket_name(site_id)
     exists = await storage.bucket_exists(bucket_name)
     if not exists:
         await storage.create_bucket(bucket_name)
         await storage.set_bucket_public_policy(bucket_name)
+        if site_base_domain:
+            cors_origins = [
+                f"https://{site_base_domain}",
+                f"https://*.{site_base_domain}",
+            ]
+            await storage.set_bucket_cors(bucket_name, cors_origins)
         logger.info(
             "storage bucket created for site",
             extra={"site_id": site_id, "bucket": bucket_name},
