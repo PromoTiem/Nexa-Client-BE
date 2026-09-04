@@ -1,8 +1,9 @@
 import json
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional
 
 import aioboto3
 from botocore.config import Config
@@ -30,16 +31,14 @@ def _sanitize_filename(filename: str) -> str:
 
 
 def _build_key(site_id: str, original_filename: str) -> str:
-    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    date = datetime.now(UTC).strftime("%Y%m%d")
     unique = uuid.uuid4().hex[:8]
     safe = _sanitize_filename(original_filename)
     return f"{site_id}/{date}_{unique}_{safe}"
 
 
 def _expires_at(seconds: int) -> str:
-    return (
-        datetime.now(timezone.utc) + timedelta(seconds=seconds)
-    ).isoformat()
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
 
 
 def _raise_storage_error(op: str, exc: Exception, **extra: Any) -> None:
@@ -80,9 +79,7 @@ class StorageClient:
     def _client(self, *, public: bool = False):
         return self._session.client(
             "s3",
-            endpoint_url=(
-                self._public_endpoint_url if public else self._endpoint_url
-            ),
+            endpoint_url=(self._public_endpoint_url if public else self._endpoint_url),
             aws_access_key_id=self._access_key,
             aws_secret_access_key=self._secret_key,
             region_name=self._region,
@@ -100,14 +97,12 @@ class StorageClient:
             extra_context=f"storage:{op}",
         )
 
-    async def _execute_with_retry(
-        self, op: str, fn: Callable
-    ) -> Any:
+    async def _execute_with_retry(self, op: str, fn: Callable) -> Any:
         return await execute_with_retry(self._make_retry(op), fn)
 
     async def presign_put(
         self, bucket: str, site_id: str, filename: str, content_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         key = _build_key(site_id, filename)
 
         async def _do_presign() -> str:
@@ -123,9 +118,7 @@ class StorageClient:
                 )
 
         try:
-            upload_url = await self._execute_with_retry(
-                "presign_put", _do_presign
-            )
+            upload_url = await self._execute_with_retry("presign_put", _do_presign)
         except _STORAGE_ERRORS as exc:
             _raise_storage_error("presign_put", exc, key=key)
 
@@ -136,7 +129,7 @@ class StorageClient:
             "expires_at": _expires_at(self._presign_expiry_seconds),
         }
 
-    async def presign_get(self, bucket: str, key: str) -> Dict[str, Any]:
+    async def presign_get(self, bucket: str, key: str) -> dict[str, Any]:
         async def _do_presign() -> str:
             async with self._client(public=True) as s3:
                 return await s3.generate_presigned_url(
@@ -146,9 +139,7 @@ class StorageClient:
                 )
 
         try:
-            download_url = await self._execute_with_retry(
-                "presign_get", _do_presign
-            )
+            download_url = await self._execute_with_retry("presign_get", _do_presign)
         except _STORAGE_ERRORS as exc:
             _raise_storage_error("presign_get", exc, key=key)
 
@@ -161,17 +152,19 @@ class StorageClient:
         return f"{self._public_endpoint_url}/{bucket}/{key}"
 
     async def set_bucket_public_policy(self, bucket: str) -> None:
-        policy = json.dumps({
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"AWS": ["*"]},
-                    "Action": ["s3:GetObject"],
-                    "Resource": [f"arn:aws:s3:::{bucket}/*"],
-                }
-            ],
-        })
+        policy = json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"AWS": ["*"]},
+                        "Action": ["s3:GetObject"],
+                        "Resource": [f"arn:aws:s3:::{bucket}/*"],
+                    }
+                ],
+            }
+        )
 
         async def _do_put_policy() -> None:
             async with self._client() as s3:
@@ -182,8 +175,8 @@ class StorageClient:
         except _STORAGE_ERRORS as exc:
             _raise_storage_error("set_bucket_public_policy", exc, bucket=bucket)
 
-    async def head(self, bucket: str, key: str) -> Dict[str, Any]:
-        async def _do_head() -> Dict[str, Any]:
+    async def head(self, bucket: str, key: str) -> dict[str, Any]:
+        async def _do_head() -> dict[str, Any]:
             async with self._client() as s3:
                 return await s3.head_object(Bucket=bucket, Key=key)
 
@@ -232,15 +225,13 @@ class StorageClient:
         except _STORAGE_ERRORS as exc:
             _raise_storage_error("put_object", exc, key=key)
 
-    async def list_objects(self, bucket: str, prefix: str) -> List[str]:
-        async def _do_list() -> List[str]:
-            keys: List[str] = []
+    async def list_objects(self, bucket: str, prefix: str) -> list[str]:
+        async def _do_list() -> list[str]:
+            keys: list[str] = []
             async with self._client() as s3:
                 try:
                     paginator = s3.get_paginator("list_objects_v2")
-                    async for page in paginator.paginate(
-                        Bucket=bucket, Prefix=prefix
-                    ):
+                    async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                         for obj in page.get("Contents", []):
                             keys.append(obj["Key"])
                 except (ClientError, BotoCoreError) as exc:
@@ -248,9 +239,7 @@ class StorageClient:
                         "paginator failed, falling back to list_objects",
                         extra={"bucket": bucket, "prefix": prefix, "error": str(exc)},
                     )
-                    resp = await s3.list_objects(
-                        Bucket=bucket, Prefix=prefix
-                    )
+                    resp = await s3.list_objects(Bucket=bucket, Prefix=prefix)
                     for obj in resp.get("Contents", []):
                         keys.append(obj["Key"])
 
@@ -276,9 +265,9 @@ class StorageClient:
             async with self._client() as s3:
                 await s3.create_bucket(
                     Bucket=bucket,
-                    CreateBucketConfiguration={
-                        "LocationConstraint": self._region
-                    } if self._region != "us-east-1" else {},
+                    CreateBucketConfiguration={"LocationConstraint": self._region}
+                    if self._region != "us-east-1"
+                    else {},
                 )
 
         try:

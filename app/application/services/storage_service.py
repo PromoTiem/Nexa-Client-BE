@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.application.services.site_file_service import SiteFileService
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -12,11 +12,9 @@ DEFAULT_ALLOWED_MIME = frozenset(
         "text/csv",
         "application/pdf",
         "application/msword",
-        "application/vnd.openxmlformats-officedocument."
-        "wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument."
-        "spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 )
 
@@ -37,12 +35,12 @@ class StorageFileService(SiteFileService):
         filename: str,
         content_type: str,
         declared_size: int,
-        name: Optional[str],
-        page_id: Optional[str],
+        name: str | None,
+        page_id: str | None,
         pb: PocketBaseClient,
         token: str,
-        user_id: Optional[str],
-    ) -> Dict[str, Any]:
+        user_id: str | None,
+    ) -> dict[str, Any]:
         return await self._create_upload(
             site_id=site_id,
             filename=filename,

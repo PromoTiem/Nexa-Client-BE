@@ -1,6 +1,4 @@
-import pytest
-
-from app.config import Settings, get_settings
+from app.config import Settings
 
 
 class TestSettingsDefaults:

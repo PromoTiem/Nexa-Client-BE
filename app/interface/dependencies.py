@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.application.services.media_service import MediaService
@@ -9,8 +9,10 @@ from app.application.services.storage_service import StorageFileService
 from app.config import Settings, get_settings
 from app.infrastructure.cloudflare.client import CloudflareClient
 from app.infrastructure.logging import get_logger
-from app.infrastructure.pocketbase.client import PocketBaseClient, create_static_pb_client
+from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.storage.client import StorageClient
+from app.interface.auth_models import AuthContext  # noqa: F401 – re-export for backward compat
+from app.interface.route_helpers import ensure_file_tenant, ensure_site_tenant, ensure_tenant_owns
 
 logger = get_logger("auth")
 
@@ -55,6 +57,30 @@ def get_storage_client(
     )
 
 
+async def get_static_pocketbase_client(
+    settings: Settings = Depends(get_settings),
+) -> PocketBaseClient:
+    """PB client authenticated as admin for public routes (no user auth)."""
+    pb = PocketBaseClient(
+        base_url=settings.pocketbase_url,
+        timeout=settings.pocketbase_timeout,
+        max_retries=settings.pocketbase_max_retries,
+        retry_backoff=settings.pocketbase_retry_backoff,
+    )
+    auth_info = await pb.auth_with_password(
+        collection=settings.pocketbase_auth_collection,
+        identity=settings.pocketbase_admin_email,
+        password=settings.pocketbase_admin_password,
+    )
+    return PocketBaseClient(
+        base_url=settings.pocketbase_url,
+        static_token=auth_info["token"],
+        timeout=settings.pocketbase_timeout,
+        max_retries=settings.pocketbase_max_retries,
+        retry_backoff=settings.pocketbase_retry_backoff,
+    )
+
+
 def get_media_service(
     settings: Settings = Depends(get_settings),
     storage: StorageClient = Depends(get_storage_client),
@@ -77,16 +103,10 @@ def get_storage_file_service(
     )
 
 
-@dataclass
-class AuthContext:
-    token: str
-    record: Dict[str, Any]
-
-
-async def get_auth_context(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
-    settings: Settings = Depends(get_settings),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+async def _resolve_auth_context(
+    credentials: Optional[HTTPAuthorizationCredentials],
+    settings: Settings,
+    pb: PocketBaseClient,
 ) -> AuthContext:
     if not credentials:
         logger.warning("missing token")
@@ -112,6 +132,53 @@ async def get_auth_context(
     return AuthContext(token=data["token"], record=data["record"])
 
 
+async def get_auth_context(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    settings: Settings = Depends(get_settings),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+) -> AuthContext:
+    return await _resolve_auth_context(credentials, settings, pb)
+
+
+@dataclass
+class TenantContext:
+    auth: AuthContext
+    tenant_id: Optional[str]
+
+    @property
+    def token(self) -> str:
+        return self.auth.token
+
+    @property
+    def user_id(self) -> str:
+        return self.auth.record["id"]
+
+    def owns(self, record: Dict[str, Any]) -> bool:
+        if not self.tenant_id:
+            return True
+        return record.get("tenant_id") == self.tenant_id
+
+    def enforce_owns(self, record: Dict[str, Any]) -> None:
+        ensure_tenant_owns(record, self.auth)
+
+    async def enforce_site(self, pb: PocketBaseClient, site_id: str) -> None:
+        await ensure_site_tenant(pb, site_id, self.auth)
+
+    async def enforce_file(
+        self, pb: PocketBaseClient, record: Dict[str, Any]
+    ) -> None:
+        await ensure_file_tenant(pb, record, self.auth)
+
+
+async def get_tenant_context(
+    auth: AuthContext = Depends(get_auth_context),
+) -> TenantContext:
+    return TenantContext(
+        auth=auth,
+        tenant_id=auth.record.get("tenant_id"),
+    )
+
+
 async def get_optional_auth_context(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     settings: Settings = Depends(get_settings),
@@ -119,72 +186,4 @@ async def get_optional_auth_context(
 ) -> Optional[AuthContext]:
     if not credentials:
         return None
-    try:
-        data = await pb.auth_refresh(
-            collection=settings.pocketbase_auth_collection,
-            token=credentials.credentials,
-        )
-    except HTTPException as exc:
-        logger.warning(
-            "refresh failed",
-            extra={"status": exc.status_code, "detail": str(exc.detail)},
-        )
-        raise
-    if not data["record"].get("tenant_id"):
-        logger.warning("client auth missing tenant_id")
-        raise HTTPException(
-            status_code=403, detail="Client access requires tenant_id"
-        )
-    return AuthContext(token=data["token"], record=data["record"])
-
-
-@dataclass
-class SuperAdminContext:
-    token: str
-
-
-def get_static_pb_client(
-    settings: Settings = Depends(get_settings),
-) -> PocketBaseClient:
-    return create_static_pb_client(settings=settings)
-
-
-async def get_admin_context(
-    x_api_be_token: Optional[str] = Header(None),
-    settings: Settings = Depends(get_settings),
-) -> SuperAdminContext:
-    if not x_api_be_token:
-        logger.warning("missing superadmin token")
-        raise HTTPException(
-            status_code=401, detail="Missing superadmin token"
-        )
-    if not settings.pocketbase_api_token:
-        logger.error("pocketbase_api_token not configured")
-        raise HTTPException(
-            status_code=500, detail="Superadmin authentication not configured"
-        )
-    if x_api_be_token != settings.pocketbase_api_token:
-        logger.warning("invalid superadmin token")
-        raise HTTPException(
-            status_code=401, detail="Invalid superadmin token"
-        )
-    return SuperAdminContext(token=x_api_be_token)
-
-
-async def get_optional_admin_context(
-    x_api_be_token: Optional[str] = Header(None),
-    settings: Settings = Depends(get_settings),
-) -> Optional[SuperAdminContext]:
-    if not x_api_be_token:
-        return None
-    if not settings.pocketbase_api_token:
-        logger.error("pocketbase_api_token not configured")
-        raise HTTPException(
-            status_code=500, detail="Superadmin authentication not configured"
-        )
-    if x_api_be_token != settings.pocketbase_api_token:
-        logger.warning("invalid superadmin token")
-        raise HTTPException(
-            status_code=401, detail="Invalid superadmin token"
-        )
-    return SuperAdminContext(token=x_api_be_token)
+    return await _resolve_auth_context(credentials, settings, pb)

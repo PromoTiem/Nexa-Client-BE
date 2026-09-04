@@ -38,6 +38,7 @@ class TestAuthRoutes:
             pytest.skip("No test credentials")
 
         from app.config import get_settings
+
         settings = get_settings()
 
         response = await live_client.post(

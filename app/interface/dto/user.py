@@ -1,15 +1,16 @@
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.interface.dto.common import PaginatedResponse
+from app.interface.dto.tenant import TenantResponse
 
 UserRole = Literal["owner", "admin", "member", "guest"]
 UserStatus = Literal["active", "inactive", "pending"]
 
 
 class UserCreateRequest(BaseModel):
-    email: str
+    email: EmailStr
     name: Optional[str] = None
     phone: Optional[str] = None
     tenant_id: Optional[str] = None
@@ -32,6 +33,12 @@ class UserProfileUpdateRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class UserChangePasswordRequest(BaseModel):
+    old_password: str
+    password: str
+    password_confirm: str
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
@@ -39,8 +46,11 @@ class UserResponse(BaseModel):
     avatar: Optional[str] = None
     phone: Optional[str] = None
     tenant_id: str
+    tenant: Optional[TenantResponse] = None
     role: UserRole
     status: UserStatus
+    is_deleted: bool = False
+    first_auth: bool = False
     last_login: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     created: str

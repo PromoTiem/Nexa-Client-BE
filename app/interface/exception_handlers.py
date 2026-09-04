@@ -17,9 +17,7 @@ def _extract_client_ip(request: Request) -> str:
     return "unknown"
 
 
-async def http_exception_handler(
-    request: Request, exc: HTTPException
-) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     status = exc.status_code
     level = logging.ERROR if status >= 500 else logging.WARNING
 
@@ -55,8 +53,7 @@ async def validation_exception_handler(
 ) -> JSONResponse:
     errors = exc.errors()
     error_summary = [
-        {"loc": e["loc"], "msg": e["msg"], "type": e["type"]}
-        for e in errors
+        {"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in errors
     ]
 
     logger.warning(
@@ -76,9 +73,7 @@ async def validation_exception_handler(
     )
 
 
-async def unhandled_exception_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
     tb_text = "".join(tb)
 
@@ -107,7 +102,5 @@ def register_exception_handlers(app: FastAPI) -> None:
         cloudflare_configuration_exception_handler,
     )
     app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(
-        RequestValidationError, validation_exception_handler
-    )
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

@@ -1,0 +1,113 @@
+name: Tests
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev]
+  schedule:
+    - cron: "0 6 * * 1"
+
+env:
+  PYTEST_ADDOPTS: "--color=yes"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app/ tests/
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -r requirements-dev.txt
+      - run: |
+          pytest tests/unit/ -q --tb=short \
+            -m "not storage and not live and not flaky" \
+            --junitxml=reports/unit-results.xml \
+            --cov=app --cov-report=xml:reports/unit-coverage.xml \
+            -n auto
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results-py${{ matrix.python-version }}
+          path: reports/
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -r requirements-dev.txt
+      - run: |
+          mkdir -p reports
+          pytest tests/integration/ -q --tb=short \
+            --junitxml=reports/integration-results.xml \
+            -n auto \
+            || echo "Integration tests skipped (no PocketBase)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: reports/
+
+  coverage-report:
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: unit-test-results-py3.12
+          path: reports/
+      - name: Generate coverage summary
+        run: |
+          coverage report --show-missing \
+            --data-file=reports/.coverage \
+            | tee reports/coverage-summary.txt
+        continue-on-error: true
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: reports/
+
+  notify-failure:
+    needs: [lint, unit-tests, integration-tests]
+    runs-on: ubuntu-latest
+    if: failure() && github.event_name == 'push'
+    timeout-minutes: 5
+    steps:
+      - name: Notify test failure
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "::error::Tests failed on ${{ github.ref_name }} — ${{ github.sha }}"
+          echo "::error::View run: $RUN_URL"

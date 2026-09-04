@@ -2,7 +2,7 @@ import os
 import re
 import shutil
 import tempfile
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -23,7 +23,7 @@ def sanitize_project_name(template_id: str) -> str:
 
 async def ensure_project(
     project_name: str, cf: CloudflareClient, production_branch: str = "main"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     try:
         result = await cf.get_project(project_name)
         return result.get("result", {})
@@ -45,7 +45,7 @@ async def ensure_project(
 
 async def deploy_to_pages(
     project_name: str,
-    files: Dict[str, bytes],
+    files: dict[str, bytes],
     cf: CloudflareClient,
     branch: str = "main",
 ) -> str:
@@ -58,9 +58,16 @@ async def deploy_to_pages(
                 f.write(content)
 
         cmd = [
-            "npx", "--yes", "wrangler@3", "pages", "deploy", temp_dir,
-            "--project-name", project_name,
-            "--branch", branch,
+            "npx",
+            "--yes",
+            "wrangler@3",
+            "pages",
+            "deploy",
+            temp_dir,
+            "--project-name",
+            project_name,
+            "--branch",
+            branch,
             "--commit-dirty=true",
         ]
 
@@ -94,7 +101,7 @@ async def add_custom_domain(
     project_name: str,
     domain: str,
     cf: CloudflareClient,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     try:
         result = await cf.add_domain(project_name, domain)
         return result.get("result", {})
@@ -109,8 +116,8 @@ async def setup_dns(
     subdomain: str,
     pages_dev_url: str,
     cf: CloudflareClient,
-    zone_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    zone_id: str | None = None,
+) -> dict[str, Any] | None:
     zone_id = zone_id or cf.zone_id
     if not zone_id:
         return None
@@ -125,7 +132,11 @@ async def setup_dns(
         if existing_target.rstrip(".") != target.rstrip("."):
             logger.info(
                 "updating existing DNS record with new target",
-                extra={"subdomain": subdomain, "old_target": existing_target, "new_target": target},
+                extra={
+                    "subdomain": subdomain,
+                    "old_target": existing_target,
+                    "new_target": target,
+                },
             )
             await cf.delete_dns_record(zone_id, existing[0]["id"])
             result = await cf.create_dns_record(
@@ -157,11 +168,17 @@ async def remove_domain_from_pages(
 ) -> bool:
     try:
         await cf.delete_domain(project_name, domain)
-        logger.info("removed domain from pages", extra={"project": project_name, "domain": domain})
+        logger.info(
+            "removed domain from pages",
+            extra={"project": project_name, "domain": domain},
+        )
         return True
     except HTTPException as e:
         if e.status_code == 404:
-            logger.info("domain not found on pages (already removed)", extra={"project": project_name, "domain": domain})
+            logger.info(
+                "domain not found on pages (already removed)",
+                extra={"project": project_name, "domain": domain},
+            )
             return False
         raise
 
@@ -169,7 +186,7 @@ async def remove_domain_from_pages(
 async def remove_dns_for_domain(
     subdomain: str,
     cf: CloudflareClient,
-    zone_id: Optional[str] = None,
+    zone_id: str | None = None,
 ) -> bool:
     zone_id = zone_id or cf.zone_id
     if not zone_id:
@@ -178,18 +195,21 @@ async def remove_dns_for_domain(
     records = await cf.list_dns_records(zone_id, record_type="CNAME", name=subdomain)
     existing = records.get("result", [])
     if not existing:
-        logger.info("dns record not found (already removed)", extra={"subdomain": subdomain})
+        logger.info(
+            "dns record not found (already removed)", extra={"subdomain": subdomain}
+        )
         return False
 
     for record in existing:
         await cf.delete_dns_record(zone_id, record["id"])
-        logger.info("removed dns record", extra={"subdomain": subdomain, "record_id": record["id"]})
+        logger.info(
+            "removed dns record",
+            extra={"subdomain": subdomain, "record_id": record["id"]},
+        )
     return True
 
 
-async def delete_cname_record(
-    cf, domain: str, zone_id: Optional[str] = None
-) -> None:
+async def delete_cname_record(cf, domain: str, zone_id: str | None = None) -> None:
     """Best-effort delete of a custom domain's CNAME in its resolved zone.
 
     Pass ``zone_id`` to reuse an already-resolved zone (avoids a redundant
@@ -200,7 +220,7 @@ async def delete_cname_record(
 
 
 async def delete_txt_verification_record(
-    cf, domain: str, token: str, zone_id: Optional[str] = None
+    cf, domain: str, token: str, zone_id: str | None = None
 ) -> None:
     """Best-effort delete of a domain's DNS TXT verification record."""
     zone_id = zone_id or await cf.resolve_zone_id(domain)
@@ -214,7 +234,7 @@ async def delete_txt_verification_record(
 
 async def cleanup_all_domains(
     project_name: str,
-    domain_record_id: Optional[str],
+    domain_record_id: str | None,
     cf: CloudflareClient,
     pb,
     token: str,
@@ -224,7 +244,9 @@ async def cleanup_all_domains(
         return
     try:
         rec = await pb.find_one_by_filter(
-            collection="domains", filter_expr=f'id="{domain_record_id}"', token=token,
+            collection="domains",
+            filter_expr=f'id="{domain_record_id}"',
+            token=token,
         )
     except Exception as e:
         logger.warning(
@@ -239,17 +261,18 @@ async def cleanup_all_domains(
         await remove_domain_from_pages(project_name, domain, cf)
     except Exception as e:
         logger.warning(
-            "CF Pages cleanup failed", extra={"domain": domain, "error": str(e)},
+            "CF Pages cleanup failed",
+            extra={"domain": domain, "error": str(e)},
         )
 
 
 async def deploy_site(
-    files: Dict[str, bytes],
+    files: dict[str, bytes],
     project_name: str,
     cf: CloudflareClient,
-    base_domain: Optional[str] = None,
-) -> Dict[str, Any]:
-    project = await ensure_project(project_name, cf)
+    base_domain: str | None = None,
+) -> dict[str, Any]:
+    await ensure_project(project_name, cf)
 
     pages_url = await deploy_to_pages(project_name, files, cf)
 
@@ -273,21 +296,28 @@ async def deploy_site(
                 # custom domain with no resolvable zone must NOT get a CNAME in
                 # the wrong (non-authoritative) zone — let it fail DNS setup.
                 global_base = get_settings().site_base_domain
-                if base_domain == global_base or base_domain.endswith(f".{global_base}"):
+                if base_domain == global_base or base_domain.endswith(
+                    f".{global_base}"
+                ):
                     zone_id = cf.zone_id
                 else:
                     raise
             dns_record = await setup_dns(base_domain, project_url, cf, zone_id)
         except Exception as e:
             dns_setup_failed = True
-            logger.warning("DNS setup failed", extra={"domain": base_domain, "error": str(e)})
+            logger.warning(
+                "DNS setup failed", extra={"domain": base_domain, "error": str(e)}
+            )
 
         try:
             await add_custom_domain(project_name, base_domain, cf)
             custom_domain = base_domain
         except Exception as e:
             domain_setup_failed = True
-            logger.warning("add custom domain failed, skipping", extra={"domain": base_domain, "error": str(e)})
+            logger.warning(
+                "add custom domain failed, skipping",
+                extra={"domain": base_domain, "error": str(e)},
+            )
 
     return {
         "project_name": project_name,

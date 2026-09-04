@@ -1,4 +1,4 @@
-from typing import Generic, List, Literal, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +12,7 @@ ServeStatus = Literal[
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    items: List[T]
+    items: list[T]
     total: int
     page: int
     per_page: int
@@ -33,7 +33,7 @@ class DownloadUrlResponse(BaseModel):
 
 
 class BulkDeleteRequest(BaseModel):
-    file_ids: List[str] = Field(max_length=100)
+    file_ids: list[str] = Field(max_length=100)
 
 
 class ItemResult(BaseModel):
@@ -42,4 +42,4 @@ class ItemResult(BaseModel):
 
 
 class BulkDeleteResponse(BaseModel):
-    results: List[ItemResult]
+    results: list[ItemResult]

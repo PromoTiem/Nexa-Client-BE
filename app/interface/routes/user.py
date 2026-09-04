@@ -3,14 +3,16 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
-    AuthContext, SuperAdminContext, get_admin_context, get_auth_context,
-    get_optional_admin_context, get_optional_auth_context,
-    get_pocketbase_client, get_static_pb_client,
+    TenantContext,
+    get_pocketbase_client,
+    get_tenant_context,
 )
 from app.interface.dto.user import (
+    UserChangePasswordRequest,
     UserCreateRequest,
     UserCreateResponse,
     UserListResponse,
@@ -18,7 +20,9 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
-from app.interface.route_helpers import auth_tenant, build_filter, validate_id
+from app.interface.dto.tenant import TenantResponse
+from app.interface.rbac import Permission, UserRole, check_role_permission, enforce_permission
+from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
 COLLECTION = "users"
 
@@ -26,13 +30,7 @@ router = APIRouter()
 logger = get_logger("user_routes")
 
 
-def _require_admin_role(auth: AuthContext) -> None:
-    role = auth.record.get("role", "")
-    if role not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-def _record_to_response(record: Dict[str, Any]) -> UserResponse:
+def _record_to_response(record: Dict[str, Any], tenant: Optional[TenantResponse] = None) -> UserResponse:
     return UserResponse(
         id=record["id"],
         email=record.get("email", ""),
@@ -40,8 +38,11 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
         avatar=record.get("avatar", ""),
         phone=record.get("phone", ""),
         tenant_id=record.get("tenant_id", ""),
-        role=record.get("role", "member"),
+        tenant=tenant,
+        role=record.get("role", "guest"),
         status=record.get("status", "active"),
+        is_deleted=record.get("is_deleted", False),
+        first_auth=record.get("first_auth", False),
         last_login=record.get("last_login", ""),
         metadata=record.get("metadata") or {},
         created=record.get("created", ""),
@@ -54,39 +55,96 @@ def _record_to_response(record: Dict[str, Any]) -> UserResponse:
 
 @router.get("/me", response_model=UserResponse)
 async def get_my_profile(
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
     record = await pb.find_record_by_id(
         collection=COLLECTION,
-        record_id=auth.record["id"],
-        token=auth.token,
+        record_id=ctx.user_id,
+        token=ctx.token,
     )
-    return _record_to_response(record)
+
+    tenant: Optional[TenantResponse] = None
+    if ctx.tenant_id:
+        try:
+            tenant_record = await pb.find_one_by_filter(
+                collection="tenants",
+                filter_expr=f'tenant_id="{ctx.tenant_id}"',
+                token=ctx.token,
+            )
+            tenant = TenantResponse(
+                id=tenant_record["id"],
+                tenant_id=tenant_record.get("tenant_id", ""),
+                name=tenant_record.get("name"),
+                plan=tenant_record.get("plan"),
+                status=tenant_record.get("status"),
+                metadata=tenant_record.get("metadata"),
+                created=tenant_record.get("created"),
+                updated=tenant_record.get("updated"),
+            )
+        except HTTPException:
+            logger.warning("tenant not found", extra={"tenant_id": ctx.tenant_id})
+
+    return _record_to_response(record, tenant=tenant)
 
 
 @router.patch("/me", response_model=UserResponse)
 async def update_my_profile(
     body: UserProfileUpdateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         record = await pb.find_record_by_id(
             collection=COLLECTION,
-            record_id=auth.record["id"],
-            token=auth.token,
+            record_id=ctx.user_id,
+            token=ctx.token,
         )
         return _record_to_response(record)
 
     record = await pb.update_record(
         collection=COLLECTION,
-        record_id=auth.record["id"],
+        record_id=ctx.user_id,
         data=update_data,
-        token=auth.token,
+        token=ctx.token,
     )
     return _record_to_response(record)
+@router.post("/me/password", status_code=204)
+async def change_my_password(
+    body: UserChangePasswordRequest,
+    ctx: TenantContext = Depends(get_tenant_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    # 1. Verify old password
+    try:
+        await pb.auth_with_password(
+            collection=settings.pocketbase_auth_collection,
+            identity=ctx.auth.record["email"],
+            password=body.old_password,
+        )
+    except HTTPException:
+        raise HTTPException(status_code=400, detail="Invalid old password")
+
+    # 2. Update password and set first_auth to False
+    await pb.update_record(
+        collection=COLLECTION,
+        record_id=ctx.user_id,
+        data={
+            "password": body.password,
+            "passwordConfirm": body.password_confirm,
+            "first_auth": False,
+        },
+        token=ctx.token,
+    )
+
+    logger.info("user password changed", extra={"user_id": ctx.user_id})
+
+    return Response(status_code=204)
+
+
+
 
 
 # ── Tenant admin — user CRUD ────────────────────────────────────
@@ -99,19 +157,22 @@ async def list_users(
     status: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserListResponse:
-    _require_admin_role(auth)
-    tenant = auth_tenant(auth)
+    enforce_permission(ctx.auth, Permission.USERS_LIST)
+    tenant = ctx.tenant_id
 
     filter_parts = [f'tenant_id="{tenant}"']
     if status:
-        filter_parts.append(f'status="{status}"')
+        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     if role:
-        filter_parts.append(f'role="{role}"')
+        filter_parts.append(f'role="{sanitize_filter_value(role)}"')
     if search:
-        filter_parts.append(f'(name~"{search}" || email~"{search}")')
+        sanitized_search = sanitize_filter_value(search)
+        filter_parts.append(
+            f'(name~"{sanitized_search}" || email~"{sanitized_search}")'
+        )
 
     filter_expr = build_filter(filter_parts)
 
@@ -121,7 +182,7 @@ async def list_users(
         page=page,
         per_page=per_page,
         sort="-created",
-        token=auth.token,
+        token=ctx.token,
     )
 
     return UserListResponse(
@@ -136,39 +197,22 @@ async def list_users(
 @router.post("", response_model=UserCreateResponse, status_code=201)
 async def create_user(
     body: UserCreateRequest,
-    auth: Optional[AuthContext] = Depends(get_optional_auth_context),
-    admin: Optional[SuperAdminContext] = Depends(get_optional_admin_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
-    static_pb: PocketBaseClient = Depends(get_static_pb_client),
 ) -> UserCreateResponse:
-    if auth:
-        _require_admin_role(auth)
-        tenant = auth_tenant(auth)
-        pb_client = pb
-        token = auth.token
-        if body.tenant_id:
-            raise HTTPException(
-                status_code=400,
-                detail="tenant_id cannot be specified with user authentication",
-            )
-    elif admin:
-        if not body.tenant_id:
-            raise HTTPException(
-                status_code=400,
-                detail="tenant_id is required for superadmin user creation",
-            )
-        tenant = body.tenant_id
-        pb_client = static_pb
-        token = admin.token
-    else:
+    enforce_permission(ctx.auth, Permission.USERS_CREATE)
+    caller_role = UserRole(ctx.auth.record.get("role", "guest"))
+    check_role_permission(caller_role, UserRole(body.role))
+
+    if body.tenant_id and body.tenant_id != ctx.tenant_id:
         raise HTTPException(
-            status_code=401,
-            detail="Authentication required: provide Bearer token or x_api_be_token header",
+            status_code=400,
+            detail="Cannot create user in a different tenant",
         )
 
     temp_password = secrets.token_urlsafe(12)
 
-    record = await pb_client.create_record(
+    record = await pb.create_record(
         collection=COLLECTION,
         data={
             "email": body.email,
@@ -176,17 +220,18 @@ async def create_user(
             "passwordConfirm": temp_password,
             "name": body.name or "",
             "phone": body.phone or "",
-            "tenant_id": tenant,
+            "tenant_id": ctx.tenant_id,
             "role": body.role,
             "status": "active",
+            "first_auth": True,
             "metadata": body.metadata or {},
         },
-        token=token,
+        token=ctx.token,
     )
 
     logger.info(
         "user created",
-        extra={"user_id": record["id"], "email": body.email, "tenant": tenant},
+        extra={"user_id": record["id"], "email": body.email, "tenant": ctx.tenant_id},
     )
 
     return UserCreateResponse(
@@ -198,20 +243,19 @@ async def create_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
-    _require_admin_role(auth)
+    enforce_permission(ctx.auth, Permission.USERS_LIST)
     validate_id(user_id, "user_id")
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
         record_id=user_id,
-        token=auth.token,
+        token=ctx.token,
     )
 
-    if record.get("tenant_id") != auth_tenant(auth):
-        raise HTTPException(status_code=404, detail="User not found")
+    ctx.enforce_owns(record)
 
     return _record_to_response(record)
 
@@ -220,10 +264,10 @@ async def get_user(
 async def update_user(
     user_id: str,
     body: UserUpdateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserResponse:
-    _require_admin_role(auth)
+    enforce_permission(ctx.auth, Permission.USERS_UPDATE)
     validate_id(user_id, "user_id")
 
     update_data = body.model_dump(exclude_unset=True)
@@ -231,25 +275,27 @@ async def update_user(
         record = await pb.find_record_by_id(
             collection=COLLECTION,
             record_id=user_id,
-            token=auth.token,
+            token=ctx.token,
         )
-        if record.get("tenant_id") != auth_tenant(auth):
-            raise HTTPException(status_code=404, detail="User not found")
+        ctx.enforce_owns(record)
         return _record_to_response(record)
+
+    if "role" in update_data:
+        caller_role = UserRole(ctx.auth.record.get("role", "guest"))
+        check_role_permission(caller_role, UserRole(update_data["role"]))
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
         record_id=user_id,
-        token=auth.token,
+        token=ctx.token,
     )
-    if record.get("tenant_id") != auth_tenant(auth):
-        raise HTTPException(status_code=404, detail="User not found")
+    ctx.enforce_owns(record)
 
     updated = await pb.update_record(
         collection=COLLECTION,
         record_id=user_id,
         data=update_data,
-        token=auth.token,
+        token=ctx.token,
     )
     return _record_to_response(updated)
 
@@ -257,25 +303,24 @@ async def update_user(
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(
     user_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> Response:
-    _require_admin_role(auth)
+    enforce_permission(ctx.auth, Permission.USERS_DELETE)
     validate_id(user_id, "user_id")
 
     record = await pb.find_record_by_id(
         collection=COLLECTION,
         record_id=user_id,
-        token=auth.token,
+        token=ctx.token,
     )
-    if record.get("tenant_id") != auth_tenant(auth):
-        raise HTTPException(status_code=404, detail="User not found")
+    ctx.enforce_owns(record)
 
     await pb.update_record(
         collection=COLLECTION,
         record_id=user_id,
-        data={"status": "inactive"},
-        token=auth.token,
+        data={"status": "inactive", "is_deleted": True},
+        token=ctx.token,
     )
 
     logger.info("user soft-deleted", extra={"user_id": user_id})

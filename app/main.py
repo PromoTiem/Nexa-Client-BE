@@ -1,18 +1,23 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.config import get_settings
 from app.infrastructure.logging import configure_logging, get_logger
 from app.interface.exception_handlers import register_exception_handlers
 from app.interface.middlewares.access_log import AccessLogMiddleware
+from app.interface.middlewares.dynamic_cors import DynamicCORSMiddleware
 from app.interface.routes import router
 
 logger = get_logger("main")
 
 settings = get_settings()
 configure_logging(settings)
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -29,15 +34,16 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_development else None,
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 register_exception_handlers(app)
 app.add_middleware(AccessLogMiddleware)
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    DynamicCORSMiddleware,
+    allowed_origins=settings.cors_origins,
+    site_base_domain=settings.site_base_domain,
+    restrict_http_origins=not settings.is_development,
 )
 
 app.include_router(router)

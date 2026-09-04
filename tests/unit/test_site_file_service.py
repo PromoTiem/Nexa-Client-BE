@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi import HTTPException
 
 from app.application.services.site_file_service import SiteFileService
@@ -133,9 +134,7 @@ class TestSiteFileServiceConfirmUpload:
     @pytest.mark.asyncio
     async def test_object_not_found_raises_409(self):
         storage = MagicMock(spec=StorageClient)
-        storage.head = AsyncMock(
-            return_value={"exists": False, "size": 0}
-        )
+        storage.head = AsyncMock(return_value={"exists": False, "size": 0})
         service = make_service(storage)
         service._allowed_mime = frozenset({"image/png"})
 
@@ -165,9 +164,7 @@ class TestSiteFileServiceConfirmUpload:
     @pytest.mark.asyncio
     async def test_size_mismatch_raises_422(self):
         storage = MagicMock(spec=StorageClient)
-        storage.head = AsyncMock(
-            return_value={"exists": True, "size": 2048}
-        )
+        storage.head = AsyncMock(return_value={"exists": True, "size": 2048})
         service = make_service(storage)
         service._allowed_mime = frozenset({"image/png"})
 
@@ -300,21 +297,26 @@ class TestSiteFileServiceBulkDelete:
 
         pb = AsyncMock()
         pb.find_one_by_filter = AsyncMock(
-            side_effect=lambda collection, **kwargs: {
-                "id": "rec_1",
-                "file_id": "file_1",
-                "site_id": "site_1",
-                "bucket": "bucket_1",
-                "path": "site_1/test.png",
-            } if collection != "sites" else {
-                "id": "site_rec",
-                "site_id": "site_1",
-                "tenant_id": "t1",
-            }
+            side_effect=lambda collection, **kwargs: (
+                {
+                    "id": "rec_1",
+                    "file_id": "file_1",
+                    "site_id": "site_1",
+                    "bucket": "bucket_1",
+                    "path": "site_1/test.png",
+                }
+                if collection != "sites"
+                else {
+                    "id": "site_rec",
+                    "site_id": "site_1",
+                    "tenant_id": "t1",
+                }
+            )
         )
         pb.delete_record = AsyncMock(return_value=None)
 
         from app.interface.dependencies import AuthContext
+
         auth = AuthContext(token="tok", record={"tenant_id": "t1"})
 
         results = await service.bulk_delete(

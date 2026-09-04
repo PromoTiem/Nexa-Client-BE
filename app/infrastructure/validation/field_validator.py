@@ -1,39 +1,37 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from app.infrastructure.logging import get_logger
 
 logger = get_logger("field_validator")
 
-FIELD_TYPES = frozenset({
-    "text",
-    "textarea",
-    "richtext",
-    "number",
-    "select",
-    "multi_select",
-    "boolean",
-    "date",
-    "datetime",
-    "url",
-    "email",
-    "color",
-    "image",
-    "gallery",
-    "json",
-})
+FIELD_TYPES = frozenset(
+    {
+        "text",
+        "textarea",
+        "richtext",
+        "number",
+        "select",
+        "multi_select",
+        "boolean",
+        "date",
+        "datetime",
+        "url",
+        "email",
+        "color",
+        "image",
+        "gallery",
+        "json",
+    }
+)
 
-_URL_RE = re.compile(
-    r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE
-)
-_EMAIL_RE = re.compile(
-    r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$"
-)
+_URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def _validate_text_value(field: dict, errors: List[str]) -> None:
+def _validate_text_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -57,10 +55,17 @@ def _validate_text_value(field: dict, errors: List[str]) -> None:
         )
 
 
-def _validate_number_value(field: dict, errors: List[str]) -> None:
+def _validate_number_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
+    if isinstance(value, str):
+        try:
+            value = float(value) if "." in value else int(value)
+            field["value"] = value
+        except (ValueError, TypeError):
+            errors.append(f"Field '{field['key']}': number value must be numeric")
+            return
     if not isinstance(value, (int, float)):
         errors.append(f"Field '{field['key']}': number value must be numeric")
         return
@@ -85,7 +90,7 @@ def _validate_number_value(field: dict, errors: List[str]) -> None:
                 )
 
 
-def _validate_select_value(field: dict, errors: List[str]) -> None:
+def _validate_select_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -99,7 +104,7 @@ def _validate_select_value(field: dict, errors: List[str]) -> None:
         )
 
 
-def _validate_multi_select_value(field: dict, errors: List[str]) -> None:
+def _validate_multi_select_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -124,7 +129,7 @@ def _validate_multi_select_value(field: dict, errors: List[str]) -> None:
         )
 
 
-def _validate_url_value(field: dict, errors: List[str]) -> None:
+def _validate_url_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -132,7 +137,7 @@ def _validate_url_value(field: dict, errors: List[str]) -> None:
         errors.append(f"Field '{field['key']}': invalid URL format")
 
 
-def _validate_email_value(field: dict, errors: List[str]) -> None:
+def _validate_email_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -140,7 +145,7 @@ def _validate_email_value(field: dict, errors: List[str]) -> None:
         errors.append(f"Field '{field['key']}': invalid email format")
 
 
-def _validate_color_value(field: dict, errors: List[str]) -> None:
+def _validate_color_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -148,12 +153,14 @@ def _validate_color_value(field: dict, errors: List[str]) -> None:
         errors.append(f"Field '{field['key']}': invalid hex color format")
 
 
-def _validate_image_value(field: dict, errors: List[str]) -> None:
+def _validate_image_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
     if not isinstance(value, str):
-        errors.append(f"Field '{field['key']}': image value must be a string (URL/path)")
+        errors.append(
+            f"Field '{field['key']}': image value must be a string (URL/path)"
+        )
         return
     allowed = field.get("allowed_types")
     if allowed and isinstance(value, str):
@@ -164,7 +171,7 @@ def _validate_image_value(field: dict, errors: List[str]) -> None:
             )
 
 
-def _validate_gallery_value(field: dict, errors: List[str]) -> None:
+def _validate_gallery_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -178,15 +185,23 @@ def _validate_gallery_value(field: dict, errors: List[str]) -> None:
         )
 
 
-def _validate_boolean_value(field: dict, errors: List[str]) -> None:
+def _validate_boolean_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
+    if isinstance(value, str):
+        lower = value.lower()
+        if lower in ("true", "1", "yes"):
+            field["value"] = True
+            return
+        if lower in ("false", "0", "no"):
+            field["value"] = False
+            return
     if not isinstance(value, bool):
         errors.append(f"Field '{field['key']}': boolean value must be true or false")
 
 
-def _validate_date_value(field: dict, errors: List[str]) -> None:
+def _validate_date_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
@@ -198,41 +213,54 @@ def _validate_date_value(field: dict, errors: List[str]) -> None:
         min_date = field.get("min_date")
         max_date = field.get("max_date")
         if min_date and parsed < datetime.strptime(min_date, "%Y-%m-%d"):
-            errors.append(f"Field '{field['key']}': date {value} is before min_date ({min_date})")
+            errors.append(
+                f"Field '{field['key']}': date {value} is before min_date ({min_date})"
+            )
         if max_date and parsed > datetime.strptime(max_date, "%Y-%m-%d"):
-            errors.append(f"Field '{field['key']}': date {value} is after max_date ({max_date})")
+            errors.append(
+                f"Field '{field['key']}': date {value} is after max_date ({max_date})"
+            )
     except ValueError:
-        errors.append(f"Field '{field['key']}': invalid date format, expected YYYY-MM-DD")
+        errors.append(
+            f"Field '{field['key']}': invalid date format, expected YYYY-MM-DD"
+        )
 
 
-def _validate_datetime_value(field: dict, errors: List[str]) -> None:
+def _validate_datetime_value(field: dict, errors: list[str]) -> None:
     value = field.get("value")
     if value is None:
         return
     if not isinstance(value, str):
         errors.append(f"Field '{field['key']}': datetime value must be a string")
         return
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z"):
+    for _fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z"):
         try:
-            parsed = datetime.strptime(value.replace("+00:00", "Z").rstrip("Z") + "Z", "%Y-%m-%dT%H:%M:%SZ")
+            parsed = datetime.strptime(
+                value.replace("+00:00", "Z").rstrip("Z") + "Z", "%Y-%m-%dT%H:%M:%SZ"
+            )
             min_date = field.get("min_date")
             max_date = field.get("max_date")
             if min_date:
                 min_dt = datetime.strptime(min_date, "%Y-%m-%d")
                 if parsed < min_dt:
-                    errors.append(f"Field '{field['key']}': datetime {value} is before min_date ({min_date})")
+                    errors.append(
+                        f"Field '{field['key']}': datetime {value} is before min_date ({min_date})"
+                    )
             if max_date:
                 max_dt = datetime.strptime(max_date, "%Y-%m-%d")
                 if parsed > max_dt:
-                    errors.append(f"Field '{field['key']}': datetime {value} is after max_date ({max_date})")
+                    errors.append(
+                        f"Field '{field['key']}': datetime {value} is after max_date ({max_date})"
+                    )
             return
         except ValueError:
             continue
     errors.append(f"Field '{field['key']}': invalid datetime format, expected ISO 8601")
 
 
-def _validate_json_value(field: dict, errors: List[str]) -> None:
+def _validate_json_value(field: dict, errors: list[str]) -> None:
     import json as _json
+
     value = field.get("value")
     if value is None:
         return
@@ -247,7 +275,9 @@ def _validate_json_value(field: dict, errors: List[str]) -> None:
     if schema and isinstance(value, dict):
         for req_key in schema.get("required", []):
             if req_key not in value:
-                errors.append(f"Field '{field['key']}': missing required JSON key '{req_key}'")
+                errors.append(
+                    f"Field '{field['key']}': missing required JSON key '{req_key}'"
+                )
 
 
 _VALUE_VALIDATORS = {
@@ -269,8 +299,8 @@ _VALUE_VALIDATORS = {
 }
 
 
-def validate_field(field: Dict[str, Any], check_required: bool = True) -> List[str]:
-    errors: List[str] = []
+def validate_field(field: dict[str, Any], check_required: bool = True) -> list[str]:
+    errors: list[str] = []
     key = field.get("key")
     if not key or not isinstance(key, str):
         errors.append("Field missing non-empty 'key'")
@@ -297,8 +327,10 @@ def validate_field(field: Dict[str, Any], check_required: bool = True) -> List[s
     return errors
 
 
-def validate_fields(fields: List[Dict[str, Any]], check_required: bool = True) -> List[str]:
-    errors: List[str] = []
+def validate_fields(
+    fields: list[dict[str, Any]], check_required: bool = True
+) -> list[str]:
+    errors: list[str] = []
     seen_keys: set = set()
     for field in fields:
         key = field.get("key", "")
@@ -309,8 +341,8 @@ def validate_fields(fields: List[Dict[str, Any]], check_required: bool = True) -
     return errors
 
 
-def validate_groups(groups: List[Dict[str, Any]]) -> List[str]:
-    errors: List[str] = []
+def validate_groups(groups: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
     seen_keys: set = set()
     for group in groups:
         key = group.get("key")

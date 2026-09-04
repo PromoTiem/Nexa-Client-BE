@@ -1,9 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import HTTPException
 
 from app.application.services.property_service import PropertyService
-from app.application.services.constants import SOFT_DELETE_FILTER
 
 
 class TestPropertyServiceCreate:

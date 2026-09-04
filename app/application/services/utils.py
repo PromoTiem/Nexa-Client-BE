@@ -2,8 +2,7 @@ import asyncio
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 from app.infrastructure.logging import get_logger
 
@@ -12,7 +11,7 @@ logger = get_logger("subprocess")
 SITES_COLLECTION = "sites"
 
 
-def sanitize_name(name: str, max_length: Optional[int] = None) -> str:
+def sanitize_name(name: str, max_length: int | None = None) -> str:
     """Lowercase, replace non-alphanumeric with hyphens, strip, optionally truncate."""
     name = re.sub(r"[^a-z0-9-]", "-", name.lower())
     name = re.sub(r"-+", "-", name).strip("-")
@@ -22,11 +21,11 @@ def sanitize_name(name: str, max_length: Optional[int] = None) -> str:
 
 
 async def run_subprocess(
-    cmd: List[str],
-    cwd: Optional[str] = None,
+    cmd: list[str],
+    cwd: str | None = None,
     timeout: int = 300,
     shell: bool = False,
-    env: Optional[dict] = None,
+    env: dict | None = None,
 ) -> tuple[int, str, str]:
     """Run a subprocess asynchronously and return (returncode, stdout, stderr)."""
     merged_env = {**os.environ, **(env or {})} if env else None
@@ -61,4 +60,4 @@ async def run_subprocess(
 
 def utc_now_iso() -> str:
     """Return the current UTC time in ISO 8601 format."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import BaseModel
 
 from app.interface.dto.common import (
@@ -18,35 +16,35 @@ class UploadUrlRequest(BaseModel):
     filename: str
     content_type: str
     size: int
-    name: Optional[str] = None
-    is_default: Optional[bool] = None
-    original_file_id: Optional[str] = None
-    page_id: Optional[str] = None
+    name: str | None = None
+    is_default: bool | None = None
+    original_file_id: str | None = None
+    page_id: str | None = None
 
 
 class MediaResponse(BaseModel):
     file_id: str
     site_id: str
-    page_id: Optional[str] = None
-    original_file_id: Optional[str] = None
+    page_id: str | None = None
+    original_file_id: str | None = None
     name: str
     original_name: str
     mime_type: str
     size: int
     status: UploadStatus
     is_default: bool = False
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 MediaListResponse = PaginatedResponse[MediaResponse]
 
 
 class MediaUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    is_default: Optional[bool] = None
-    original_file_id: Optional[str] = None
-    page_id: Optional[str] = None
+    name: str | None = None
+    is_default: bool | None = None
+    original_file_id: str | None = None
+    page_id: str | None = None
 
 
 __all__ = [
