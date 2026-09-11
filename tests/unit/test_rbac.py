@@ -144,6 +144,7 @@ class TestPermissionMatrix:
                 Permission.PAGES_LIST,
                 Permission.SECTIONS_LIST,
                 Permission.BUILDS_LIST,
+                Permission.ANALYTICS_VIEW,
             ):
                 assert perm not in guest_perms
 

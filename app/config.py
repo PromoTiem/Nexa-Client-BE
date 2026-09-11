@@ -30,6 +30,28 @@ class StorageClientSettings(BaseSettings):
     max_file_bytes: int = 10 * 1024 * 1024
 
 
+class LLMSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    fallback_model: str = "gpt-4o-mini"
+    max_tokens: int = 1000
+    temperature: float = 0.3
+    monthly_budget_usd: float = 50.0
+    cache_ttl_hours: int = 24
+    enabled: bool = True
+
+
+class AnalyticsSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    buffer_size: int = 100
+    flush_interval_seconds: int = 5
+    aggregation_enabled: bool = True
+    retention_days: int | None = None  # None = forever
+
+
 class Settings(BaseSettings):
     # Nested settings are overridable via the "__" delimiter, e.g.
     # STORAGE__ENDPOINT_URL, LOGGING__LEVEL.
@@ -74,6 +96,12 @@ class Settings(BaseSettings):
 
     # Storage (RustFS / S3)
     storage: StorageClientSettings = StorageClientSettings()
+
+    # LLM (AI)
+    llm: LLMSettings = LLMSettings()
+
+    # Analytics
+    analytics: AnalyticsSettings = AnalyticsSettings()
 
     @classmethod
     def settings_customise_sources(

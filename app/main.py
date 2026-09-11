@@ -19,11 +19,39 @@ configure_logging(settings)
 
 limiter = Limiter(key_func=get_remote_address)
 
+# Analytics collector (global, started in lifespan)
+_analytics_collector = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _analytics_collector
+
+    # Start analytics collector if enabled
+    if settings.analytics.aggregation_enabled:
+        from app.infrastructure.analytics.collector import AnalyticsCollector
+        from app.infrastructure.pocketbase.client import PocketBaseClient
+
+        pb = PocketBaseClient(
+            base_url=settings.pocketbase_url,
+            timeout=settings.pocketbase_timeout,
+            max_retries=settings.pocketbase_max_retries,
+            retry_backoff=settings.pocketbase_retry_backoff,
+        )
+        _analytics_collector = AnalyticsCollector(
+            pb=pb,
+            buffer_size=settings.analytics.buffer_size,
+            flush_interval=settings.analytics.flush_interval_seconds,
+        )
+        await _analytics_collector.start()
+
     logger.info("client api started")
     yield
+
+    # Stop analytics collector
+    if _analytics_collector:
+        await _analytics_collector.stop()
+
     logger.info("client api stopped")
 
 
