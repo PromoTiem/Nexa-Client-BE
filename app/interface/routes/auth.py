@@ -1,5 +1,4 @@
 import secrets
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
@@ -43,14 +42,12 @@ async def login(
 @limiter.limit("30/minute")
 async def refresh(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> AuthRefreshResponse:
     if not credentials:
-        raise HTTPException(
-            status_code=401, detail="Missing authorization token"
-        )
+        raise HTTPException(status_code=401, detail="Missing authorization token")
     data = await pb.auth_refresh(
         collection=settings.pocketbase_auth_collection,
         token=credentials.credentials,

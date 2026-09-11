@@ -1,5 +1,3 @@
-from typing import List
-
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
@@ -11,11 +9,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
-        allowed_origins: List[str] = None,
+        allowed_origins: list[str] = None,
         site_base_domain: str = "",
         allow_credentials: bool = True,
-        allow_methods: List[str] = None,
-        allow_headers: List[str] = None,
+        allow_methods: list[str] = None,
+        allow_headers: list[str] = None,
         restrict_http_origins: bool = False,
     ) -> None:
         super().__init__(app)

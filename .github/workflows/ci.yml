@@ -144,13 +144,13 @@ jobs:
           path: reports/junit-integration.xml
           retention-days: 30
 
-          - name: Upload coverage shard
-            if: always()
-            uses: actions/upload-artifact@v4
-            with:
-              name: coverage-unit
-              path: coverage.xml
-              retention-days: 1
+      - name: Upload coverage shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration
+          path: coverage.xml
+          retention-days: 1
 
   test-storage:
     name: Storage Tests
@@ -293,7 +293,7 @@ jobs:
           files: "test-reports/**/*.xml"
           comment_mode: off
 
-    notify-failure:
+  notify-failure:
     name: Notify on Failure
     needs: [test-unit, test-integration, test-e2e, test-storage, lint]
     runs-on: ubuntu-latest

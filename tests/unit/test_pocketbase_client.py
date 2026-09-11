@@ -299,7 +299,10 @@ class TestPocketBaseClientListRecords:
 
         await client.list_records(collection=TENANTS_COLLECTION, token=SAMPLE_TOKEN)
 
-        assert route.calls.last.request.headers["Authorization"] == SAMPLE_TOKEN
+        assert (
+            route.calls.last.request.headers["Authorization"]
+            == f"Bearer {SAMPLE_TOKEN}"
+        )
 
     @respx.mock
     async def test_invalid_token_raises_401(self):
@@ -648,14 +651,14 @@ class TestPocketBaseClientAuthHeaders:
 
         headers = client._get_auth_headers(token=None)
 
-        assert headers == {"x_api_be_token": "static.val"}
+        assert headers == {"Authorization": "Bearer static.val"}
 
     def test_uses_explicit_token_over_static_token(self):
         client = PocketBaseClient(base_url=PB_BASE, static_token="static.val")
 
         headers = client._get_auth_headers(token="bearer mytoken")
 
-        assert headers == {"Authorization": "bearer mytoken"}
+        assert headers == {"Authorization": "Bearer bearer mytoken"}
 
 
 class TestCreateStaticPbClient:
