@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Dict, FrozenSet
 
 from fastapi import HTTPException
 
@@ -47,8 +46,12 @@ class Permission(str, Enum):
 
     STORAGE_ACCESS = "storage:access"
 
+    ANALYTICS_TRACK = "analytics:track"
+    ANALYTICS_VIEW = "analytics:view"
+    INSIGHTS_ACCESS = "insights:access"
 
-ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
+
+ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     UserRole.OWNER: frozenset({
         Permission.SITES_LIST,
         Permission.SITES_CREATE,
@@ -75,6 +78,9 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.MEDIA_LIST,
         Permission.MEDIA_DELETE,
         Permission.STORAGE_ACCESS,
+        Permission.ANALYTICS_TRACK,
+        Permission.ANALYTICS_VIEW,
+        Permission.INSIGHTS_ACCESS,
     }),
     UserRole.ADMIN: frozenset({
         Permission.SITES_LIST,
@@ -102,6 +108,9 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.MEDIA_LIST,
         Permission.MEDIA_DELETE,
         Permission.STORAGE_ACCESS,
+        Permission.ANALYTICS_TRACK,
+        Permission.ANALYTICS_VIEW,
+        Permission.INSIGHTS_ACCESS,
     }),
     UserRole.MEMBER: frozenset({
         Permission.SITES_LIST,
@@ -121,6 +130,9 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.MEDIA_UPLOAD,
         Permission.MEDIA_LIST,
         Permission.STORAGE_ACCESS,
+        Permission.ANALYTICS_TRACK,
+        Permission.ANALYTICS_VIEW,
+        Permission.INSIGHTS_ACCESS,
     }),
     UserRole.GUEST: frozenset({
         Permission.SITES_LIST,
@@ -132,6 +144,7 @@ ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
         Permission.SECTIONS_LIST,
         Permission.BUILDS_LIST,
         Permission.MEDIA_LIST,
+        Permission.ANALYTICS_VIEW,
     }),
 }
 
@@ -165,7 +178,7 @@ def can_manage_users(auth: AuthContext) -> bool:
     return has_permission(auth, Permission.USERS_LIST)
 
 
-_ROLE_HIERARCHY: Dict[UserRole, int] = {
+_ROLE_HIERARCHY: dict[UserRole, int] = {
     UserRole.OWNER: 0,
     UserRole.ADMIN: 1,
     UserRole.MEMBER: 2,

@@ -3,15 +3,14 @@ from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
 from app.interface.rbac import (
+    ROLE_PERMISSIONS,
     Permission,
     UserRole,
-    ROLE_PERMISSIONS,
-    check_role_permission,
-    has_permission,
     can_delete_resources,
     can_manage_users,
+    check_role_permission,
+    has_permission,
 )
-
 
 MOCK_OWNER = AuthContext(
     token="owner_token",
@@ -144,6 +143,7 @@ class TestPermissionMatrix:
                 Permission.PAGES_LIST,
                 Permission.SECTIONS_LIST,
                 Permission.BUILDS_LIST,
+                Permission.ANALYTICS_VIEW,
             ):
                 assert perm not in guest_perms
 

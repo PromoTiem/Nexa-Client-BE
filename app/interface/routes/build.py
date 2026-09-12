@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -31,7 +31,7 @@ router = APIRouter()
 logger = get_logger("build_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> BuildResponse:
+def _record_to_response(record: dict[str, Any]) -> BuildResponse:
     return BuildResponse(
         id=record["id"],
         build_id=record["build_id"],
@@ -65,7 +65,7 @@ async def _resolve_site_tenant(
 
 
 async def _enforce_build_tenant(
-    record: Dict[str, Any], ctx: TenantContext, pb: PocketBaseClient
+    record: dict[str, Any], ctx: TenantContext, pb: PocketBaseClient
 ) -> None:
     if not ctx.tenant_id:
         return
@@ -82,8 +82,8 @@ async def list_builds(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    site_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
+    site_id: str | None = Query(None),
+    status: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BuildListResponse:
@@ -160,7 +160,7 @@ async def create_build(
     if site.get("tenant_id") != tenant_pb_id:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "build_id": body.build_id,
         "site_id": body.site_id,
         "status": "queued",
@@ -204,7 +204,7 @@ async def update_build(
     )
     await _enforce_build_tenant(record, ctx, pb)
 
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if body.status is not None:
         updates["status"] = body.status
     if body.content_id is not None:

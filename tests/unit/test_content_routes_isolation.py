@@ -1,15 +1,24 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
 from app.interface.dependencies import TenantContext
 from app.interface.routes import (
-    template as template_route,
-    style as style_route,
     block as block_route,
+)
+from app.interface.routes import (
     page as page_route,
+)
+from app.interface.routes import (
     section as section_route,
+)
+from app.interface.routes import (
+    style as style_route,
+)
+from app.interface.routes import (
+    template as template_route,
 )
 
 TENANT_PUBLIC = "tenant_abc"
@@ -213,7 +222,7 @@ class TestTemplateExpandIsolation:
 
 class TestDefaultRole:
     def test_rbac_defaults_missing_role_to_guest(self):
-        from app.interface.rbac import has_permission, Permission
+        from app.interface.rbac import Permission, has_permission
 
         no_role = AuthContext(token="t", record={"id": "u1", "tenant_id": "t1"})
         # Guest can list/read but cannot create users.
