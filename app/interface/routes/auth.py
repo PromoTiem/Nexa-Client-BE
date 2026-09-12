@@ -1,5 +1,4 @@
 import secrets
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
@@ -43,7 +42,7 @@ async def login(
 @limiter.limit("30/minute")
 async def refresh(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> AuthRefreshResponse:

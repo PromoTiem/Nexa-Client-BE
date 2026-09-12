@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,6 +9,7 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
+from app.interface.dto.template import TemplateListResponse, TemplateResponse
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     build_filter,
@@ -18,7 +19,6 @@ from app.interface.route_helpers import (
     validate_id,
     validate_sort,
 )
-from app.interface.dto.template import TemplateResponse, TemplateListResponse
 
 COLLECTION = "templates"
 
@@ -26,7 +26,7 @@ router = APIRouter()
 logger = get_logger("template_routes")
 
 
-def _record_to_response(record: Dict[str, Any]) -> TemplateResponse:
+def _record_to_response(record: dict[str, Any]) -> TemplateResponse:
     return TemplateResponse(
         id=record["id"],
         template_id=record["template_id"],
@@ -38,7 +38,7 @@ def _record_to_response(record: Dict[str, Any]) -> TemplateResponse:
         page_ids=record.get("page_ids") or None,
         version=record.get("version") or None,
         is_valid=record.get("is_valid") or None,
-        is_default=record.get("default") or False,
+        default=record.get("default") or False,
         created_at=record.get("created_at"),
         updated_at=record.get("updated_at"),
         created_by=record.get("created_by"),
@@ -51,10 +51,10 @@ async def _resolve_batch(
     token: str,
     collection: str,
     id_field: str,
-    ids: Optional[List[str]],
-    warnings: List[str],
-    tenant_clause: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    ids: list[str] | None,
+    warnings: list[str],
+    tenant_clause: str | None = None,
+) -> list[dict[str, Any]]:
     if not ids:
         return []
     filter_expr = " || ".join(f'{id_field}="{id}"' for id in ids)
@@ -73,10 +73,10 @@ async def _resolve_batch(
 async def _resolve_style(
     pb: PocketBaseClient,
     token: str,
-    style_id: Optional[str],
-    warnings: List[str],
-    tenant_clause: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    style_id: str | None,
+    warnings: list[str],
+    tenant_clause: str | None = None,
+) -> dict[str, Any] | None:
     if not style_id:
         return None
     filter_expr = f'style_id="{style_id}"'
@@ -98,9 +98,9 @@ async def list_templates(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     sort: str = Query("-created_at"),
-    category: Optional[str] = Query(None),
-    tags: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    tags: str | None = Query(None),
+    search: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateListResponse:
@@ -108,7 +108,7 @@ async def list_templates(
     sort = validate_sort(
         sort, allowed_fields=["created_at", "updated_at", "name", "category"]
     )
-    filter_parts: List[str] = []
+    filter_parts: list[str] = []
     if category:
         filter_parts.append(f'category="{sanitize_filter_value(category)}"')
     if tags:
@@ -149,7 +149,7 @@ async def list_templates(
 @router.get("/{template_id}", response_model=TemplateResponse)
 async def get_template(
     template_id: str,
-    expand: Optional[str] = Query(None),
+    expand: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> TemplateResponse:
@@ -168,7 +168,7 @@ async def get_template(
         return resp
 
     expand_set = {"style", "pages", "sections", "blocks"} if expand == "true" else set(expand.split(","))
-    warnings: List[str] = list(resp.warnings) if resp.warnings else []
+    warnings: list[str] = list(resp.warnings) if resp.warnings else []
 
     if "style" in expand_set:
         resp.expanded_style = await _resolve_style(

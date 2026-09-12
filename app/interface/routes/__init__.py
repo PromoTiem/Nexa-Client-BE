@@ -1,9 +1,11 @@
 from fastapi import APIRouter
 
+from app.interface.routes.analytics import router as analytics_router
 from app.interface.routes.auth import router as auth_router
 from app.interface.routes.block import router as block_router
 from app.interface.routes.build import router as build_router
 from app.interface.routes.health import router as health_router
+from app.interface.routes.insights import router as insights_router
 from app.interface.routes.media import router as media_router
 from app.interface.routes.page import router as page_router
 from app.interface.routes.property import public_property_router
@@ -35,3 +37,5 @@ router.include_router(page_router, prefix="/pages", tags=["page"])
 router.include_router(section_router, prefix="/sections", tags=["section"])
 router.include_router(media_router, prefix="/media", tags=["media"])
 router.include_router(storage_router, prefix="/storage", tags=["storage"])
+router.include_router(analytics_router, tags=["analytics"])
+router.include_router(insights_router, tags=["insights"])

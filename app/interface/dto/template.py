@@ -16,7 +16,7 @@ class TemplateResponse(BaseModel):
     page_ids: list[str] | None = None
     version: int | None = None
     is_valid: bool | None = None
-    is_default: bool | None = False
+    default: bool | None = False
     created_at: str | None = None
     updated_at: str | None = None
     created_by: str | None = None
