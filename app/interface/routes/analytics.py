@@ -1,8 +1,9 @@
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
 from app.application.services.analytics_service import AnalyticsService
+from app.infrastructure.analytics.aggregator import AnalyticsAggregator
+from app.infrastructure.analytics.collector import AnalyticsCollector
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
@@ -21,18 +22,15 @@ from app.interface.dto.analytics import (
     EventTrackResponse,
     KPISummary,
     ProductAnalyticsResponse,
-    TopProductsResponse,
-    TrendResponse,
     TopItem,
-    TrendDataPoint,
     TopProductItem,
+    TopProductsResponse,
     TrendBreakdownItem,
+    TrendDataPoint,
+    TrendResponse,
 )
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import validate_id
-
-from app.infrastructure.analytics.collector import AnalyticsCollector
-from app.infrastructure.analytics.aggregator import AnalyticsAggregator
 
 logger = get_logger("analytics_routes")
 

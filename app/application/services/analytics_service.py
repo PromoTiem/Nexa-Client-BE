@@ -79,7 +79,6 @@ class AnalyticsService:
 
         dates_aggregated = 0
         dates_skipped = 0
-        total_events = 0
         errors: list[str] = []
 
         current = start_dt
@@ -92,7 +91,7 @@ class AnalyticsService:
                 else:
                     dates_skipped += 1
             except Exception as e:
-                errors.append(f"{date_str}: {str(e)}")
+                errors.append(f"{date_str}: {e!s}")
             current += timedelta(days=1)
 
         return {

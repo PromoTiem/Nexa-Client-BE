@@ -6,10 +6,10 @@ from app.infrastructure.llm.client import LLMClient
 from app.infrastructure.llm.prompts import (
     PRODUCT_OPTIMIZATION_SYSTEM,
     PRODUCT_OPTIMIZATION_USER,
-    SEO_ANALYSIS_SYSTEM,
-    SEO_ANALYSIS_USER,
     QUALITY_SCORING_SYSTEM,
     QUALITY_SCORING_USER,
+    SEO_ANALYSIS_SYSTEM,
+    SEO_ANALYSIS_USER,
     SITE_SUMMARY_SYSTEM,
     SITE_SUMMARY_USER,
     format_product_fields,
@@ -40,7 +40,6 @@ class InsightService:
         tenant_id: str = "",
     ) -> dict[str, Any]:
         """Run AI analysis on a property. Returns cached result if available."""
-        now = datetime.now(UTC).isoformat()
 
         # Fetch property
         prop = await self._pb.find_record_by_filter(
@@ -200,7 +199,7 @@ class InsightService:
         )
         quality_items = quality_result.get("items", [])
         scores = [item.get("score", 0) or 0 for item in quality_items]
-        avg_quality_score = round(sum(scores) / len(scores), 1) if scores else 0
+        avg_quality = round(sum(scores) / len(scores), 1) if scores else 0
 
         summary_input = SITE_SUMMARY_USER.format(
             site_id=site_id,
@@ -208,7 +207,7 @@ class InsightService:
             published_products=published,
             products_with_description=with_desc,
             products_with_images=with_images,
-            avg_quality_score=0,
+            avg_quality_score=avg_quality,
             critical_issues=critical_issues,
             top_issues="; ".join(top_issues[:5]),
         )

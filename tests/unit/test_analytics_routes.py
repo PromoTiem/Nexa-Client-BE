@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -10,7 +10,6 @@ from app.interface.routes.analytics import (
     get_dashboard,
     get_product_analytics,
     get_top_products,
-    get_trends,
     track_event,
     track_events_batch,
 )
@@ -53,7 +52,10 @@ class TestTrackEventBatch:
     async def test_batch_track_success(self):
         pb = _mock_pb_with_records([])
         collector = _make_collector()
-        from app.interface.dto.analytics import AnalyticsBatchRequest, AnalyticsEventRequest
+        from app.interface.dto.analytics import (
+            AnalyticsBatchRequest,
+            AnalyticsEventRequest,
+        )
 
         body = AnalyticsBatchRequest(events=[
             AnalyticsEventRequest(event_type="page_view", site_id="site_1"),
@@ -73,7 +75,10 @@ class TestTrackEventBatch:
     async def test_batch_track_guest_forbidden(self):
         pb = _mock_pb_with_records([])
         collector = _make_collector()
-        from app.interface.dto.analytics import AnalyticsBatchRequest, AnalyticsEventRequest
+        from app.interface.dto.analytics import (
+            AnalyticsBatchRequest,
+            AnalyticsEventRequest,
+        )
 
         body = AnalyticsBatchRequest(events=[
             AnalyticsEventRequest(event_type="page_view", site_id="site_1"),
@@ -143,7 +148,6 @@ class TestGetDashboard:
 
         pb = AsyncMock()
         async def side_effect(*args, **kwargs):
-            filter_val = kwargs.get("filter", "")
             collection = args[0] if args else ""
             # Properties collection lookup
             if collection == "properties":
@@ -222,13 +226,12 @@ class TestGetProductAnalytics:
                  "product_impressions": 10, "add_to_carts": 5, "purchases": 2,
                  "revenue": 100.0, "search_count": 3, "avg_session_duration": 45.0,
                  "pages_per_session": 2.0}]
-        trend = [{"date": "2026-01-01", "value": 50}]
         props = [{"property_id": "prop_1", "name": "My Product"}]
 
         pb = AsyncMock()
         async def side_effect(*args, **kwargs):
-            filter_val = kwargs.get("filter", "")
             collection = args[0] if args else ""
+            filter_val = kwargs.get("filter", "")
             if collection == "properties":
                 return {"items": props, "totalItems": 1}
             if "total_views" in filter_val:

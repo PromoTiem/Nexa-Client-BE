@@ -1,26 +1,21 @@
 import asyncio
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
 from app.application.services.insight_service import InsightService
 from app.config import Settings, get_settings
-from app.infrastructure.llm.cache import LLMCache
 from app.infrastructure.llm.client import LLMClient
-from app.infrastructure.llm.token_tracker import TokenTracker
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     TenantContext,
-    get_pocketbase_client,
     get_tenant_context,
 )
 from app.interface.dto.insights import (
     AnalyzeRequest,
     BatchAnalysisRequest,
     BatchAnalysisStatusResponse,
-    ContentOptimizationResponse,
     LLMHealthResponse,
     QualityScoreResponse,
     RecommendationsResponse,
@@ -39,7 +34,6 @@ def _get_insight_service(
     ctx: TenantContext = Depends(get_tenant_context),
     settings: Settings = Depends(get_settings),
 ) -> InsightService:
-    from app.infrastructure.pocketbase.client import PocketBaseClient
 
     pb = PocketBaseClient(
         base_url=settings.pocketbase_url,
@@ -118,7 +112,7 @@ async def batch_analyze(
     job_id = f"job_{uuid.uuid4().hex[:8]}"
 
     # Launch background processing
-    asyncio.create_task(
+    _batch_task = asyncio.create_task(  # noqa: RUF006
         _process_batch_analysis(
             service=service,
             site_id=site_id,

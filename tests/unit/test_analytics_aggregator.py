@@ -2,7 +2,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.infrastructure.analytics.aggregator import AnalyticsAggregator, _parse_user_agent
+from app.infrastructure.analytics.aggregator import (
+    AnalyticsAggregator,
+    _parse_user_agent,
+)
 
 
 class TestParseUserAgent:
@@ -14,22 +17,22 @@ class TestParseUserAgent:
 
     def test_mobile_device(self):
         ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)"
-        source, device = _parse_user_agent(ua)
+        _source, device = _parse_user_agent(ua)
         assert device == "mobile"
 
     def test_tablet_device(self):
         ua = "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X)"
-        source, device = _parse_user_agent(ua)
+        _source, device = _parse_user_agent(ua)
         assert device == "tablet"
 
     def test_google_bot(self):
         ua = "Mozilla/5.0 (compatible; Googlebot/2.1)"
-        source, device = _parse_user_agent(ua)
+        source, _device = _parse_user_agent(ua)
         assert source == "search"
 
     def test_facebook_referral(self):
         ua = "Mozilla/5.0 (compatible; Facebookbot/1.0)"
-        source, device = _parse_user_agent(ua)
+        source, _device = _parse_user_agent(ua)
         assert source == "social"
 
     def test_empty_user_agent(self):

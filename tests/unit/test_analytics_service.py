@@ -180,12 +180,12 @@ class TestAnalyticsServiceDateRange:
 
     def test_30d(self):
         service, _ = _make_service()
-        start, end = service._date_range("30d")
+        start, _end = service._date_range("30d")
         assert len(start) == 10
 
     def test_all(self):
         service, _ = _make_service()
-        start, end = service._date_range("all")
+        start, _end = service._date_range("all")
         assert start == "2020-01-01"
 
     def test_previous_period_range(self):
