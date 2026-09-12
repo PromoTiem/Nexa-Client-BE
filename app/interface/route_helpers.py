@@ -69,12 +69,14 @@ def validate_sort(value: str, allowed_fields: list[str] | None = None) -> str:
 
 # ----- filter building -------------------------------------------------- #
 
+
 def build_filter(parts: list[str]) -> str | None:
     """Join filter parts with ``&&`` into a single PocketBase filter expression."""
     return " && ".join(parts) if parts else None
 
 
 # ----- auth / tenant helpers ------------------------------------------- #
+
 
 def auth_tenant(auth: AuthContext) -> str | None:
     return auth.record.get("tenant_id")
@@ -87,6 +89,7 @@ def ensure_tenant_owns(record: dict[str, Any], auth: AuthContext) -> None:
 
 
 # ----- PocketBase ID resolution ---------------------------------------- #
+
 
 async def ensure_site_tenant(
     pb: PocketBaseClient,
@@ -143,9 +146,7 @@ async def tenant_record_id(
     than silently dropping the isolation boundary.
     """
     if not tenant_id:
-        raise HTTPException(
-            status_code=403, detail="Client access requires tenant_id"
-        )
+        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
     return await public_id_to_record_id(pb, "tenants", "tenant_id", tenant_id, token)
 
 
@@ -215,6 +216,7 @@ async def record_id_to_public_id(
 
 # ----- record field mapping -------------------------------------------- #
 
+
 async def map_site_record(
     record: dict[str, Any],
     token: str,
@@ -234,5 +236,3 @@ async def map_site_record(
             pb, collection, public_field, record.get(field), token
         )
     return mapped
-
-

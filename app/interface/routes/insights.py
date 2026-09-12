@@ -169,7 +169,12 @@ async def _process_batch_analysis(
 
     logger.info(
         "batch analysis completed",
-        extra={"job_id": job_id, "site_id": site_id, "processed": processed, "failed": failed},
+        extra={
+            "job_id": job_id,
+            "site_id": site_id,
+            "processed": processed,
+            "failed": failed,
+        },
     )
 
 
@@ -190,7 +195,11 @@ async def get_score(
     result = await service.get_score(site_id, property_id)
     if not result:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Insight not found. Run POST /insights/analyze first.")
+
+        raise HTTPException(
+            status_code=404,
+            detail="Insight not found. Run POST /insights/analyze first.",
+        )
 
     return QualityScoreResponse(
         property_id=property_id,
@@ -219,7 +228,11 @@ async def get_seo(
     result = await service.get_seo(site_id, property_id)
     if not result:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Insight not found. Run POST /insights/analyze first.")
+
+        raise HTTPException(
+            status_code=404,
+            detail="Insight not found. Run POST /insights/analyze first.",
+        )
 
     return SEOAnalysisResponse(
         property_id=property_id,
@@ -286,6 +299,7 @@ async def get_site_summary(
     result = await service.get_site_summary(site_id)
     if not result:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=503, detail="AI summary unavailable")
 
     return SiteSummaryResponse(**result)

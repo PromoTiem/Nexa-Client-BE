@@ -53,9 +53,30 @@ class TestComputeAggregates:
 
     def test_page_views(self):
         events = [
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "page_view", "ip_hash": "b", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "product_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1"},
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "page_view",
+                "ip_hash": "b",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "product_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
         ]
         agg = self.aggregator._compute_aggregates("site_1", "2026-01-01", events)
         assert agg["total_views"] == 3
@@ -64,8 +85,22 @@ class TestComputeAggregates:
 
     def test_purchases_and_revenue(self):
         events = [
-            {"event_type": "purchase", "ip_hash": "a", "user_agent": "", "metadata": {"total": 99.99}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "purchase", "ip_hash": "b", "user_agent": "", "metadata": {"total": 49.50}, "session_id": "s2", "tenant_id": "t1"},
+            {
+                "event_type": "purchase",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {"total": 99.99},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "purchase",
+                "ip_hash": "b",
+                "user_agent": "",
+                "metadata": {"total": 49.50},
+                "session_id": "s2",
+                "tenant_id": "t1",
+            },
         ]
         agg = self.aggregator._compute_aggregates("site_1", "2026-01-01", events)
         assert agg["purchases"] == 2
@@ -73,9 +108,30 @@ class TestComputeAggregates:
 
     def test_search_queries(self):
         events = [
-            {"event_type": "search", "ip_hash": "a", "user_agent": "", "metadata": {"query": "shoes"}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "search", "ip_hash": "a", "user_agent": "", "metadata": {"query": "shoes"}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "search", "ip_hash": "b", "user_agent": "", "metadata": {"query": "hats"}, "session_id": "s2", "tenant_id": "t1"},
+            {
+                "event_type": "search",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {"query": "shoes"},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "search",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {"query": "shoes"},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "search",
+                "ip_hash": "b",
+                "user_agent": "",
+                "metadata": {"query": "hats"},
+                "session_id": "s2",
+                "tenant_id": "t1",
+            },
         ]
         agg = self.aggregator._compute_aggregates("site_1", "2026-01-01", events)
         assert agg["search_count"] == 3
@@ -85,8 +141,22 @@ class TestComputeAggregates:
 
     def test_traffic_sources_and_device_types(self):
         events = [
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "Mozilla/5.0 (iPhone)", "metadata": {}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "page_view", "ip_hash": "b", "user_agent": "Mozilla/5.0 (Windows)", "metadata": {}, "session_id": "s2", "tenant_id": "t1"},
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "Mozilla/5.0 (iPhone)",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "page_view",
+                "ip_hash": "b",
+                "user_agent": "Mozilla/5.0 (Windows)",
+                "metadata": {},
+                "session_id": "s2",
+                "tenant_id": "t1",
+            },
         ]
         agg = self.aggregator._compute_aggregates("site_1", "2026-01-01", events)
         assert agg["device_types"]["mobile"] == 1
@@ -94,11 +164,46 @@ class TestComputeAggregates:
 
     def test_session_duration_and_pages(self):
         events = [
-            {"event_type": "session_end", "ip_hash": "a", "user_agent": "", "metadata": {"duration_seconds": 120}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "session_end", "ip_hash": "b", "user_agent": "", "metadata": {"duration_seconds": 60}, "session_id": "s2", "tenant_id": "t1"},
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1"},
-            {"event_type": "page_view", "ip_hash": "b", "user_agent": "", "metadata": {}, "session_id": "s2", "tenant_id": "t1"},
+            {
+                "event_type": "session_end",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {"duration_seconds": 120},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "session_end",
+                "ip_hash": "b",
+                "user_agent": "",
+                "metadata": {"duration_seconds": 60},
+                "session_id": "s2",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+            },
+            {
+                "event_type": "page_view",
+                "ip_hash": "b",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s2",
+                "tenant_id": "t1",
+            },
         ]
         agg = self.aggregator._compute_aggregates("site_1", "2026-01-01", events)
         assert agg["avg_session_duration"] == 90.0
@@ -120,7 +225,15 @@ class TestAnalyticsAggregatorAggregateDaily:
     async def test_aggregates_events_and_upserts(self):
         pb = AsyncMock()
         events = [
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1", "property_id": ""},
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+                "property_id": "",
+            },
         ]
         pb.list_records = AsyncMock(return_value={"items": events, "totalItems": 1})
         pb.create_record = AsyncMock(return_value={"id": "rec_1"})
@@ -136,8 +249,24 @@ class TestAnalyticsAggregatorAggregateDaily:
     async def test_creates_per_property_aggregates(self):
         pb = AsyncMock()
         events = [
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1", "property_id": "prop_1"},
-            {"event_type": "page_view", "ip_hash": "a", "user_agent": "", "metadata": {}, "session_id": "s1", "tenant_id": "t1", "property_id": "prop_2"},
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+                "property_id": "prop_1",
+            },
+            {
+                "event_type": "page_view",
+                "ip_hash": "a",
+                "user_agent": "",
+                "metadata": {},
+                "session_id": "s1",
+                "tenant_id": "t1",
+                "property_id": "prop_2",
+            },
         ]
         call_count = 0
 

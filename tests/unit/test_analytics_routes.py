@@ -16,17 +16,32 @@ from app.interface.routes.analytics import (
 
 MOCK_AUTH = AuthContext(
     token="test_token",
-    record={"id": "user_1", "email": "test@example.com", "tenant_id": "tenant_1", "role": "admin"},
+    record={
+        "id": "user_1",
+        "email": "test@example.com",
+        "tenant_id": "tenant_1",
+        "role": "admin",
+    },
 )
 
 MOCK_MEMBER_AUTH = AuthContext(
     token="member_token",
-    record={"id": "user_2", "email": "member@example.com", "tenant_id": "tenant_1", "role": "member"},
+    record={
+        "id": "user_2",
+        "email": "member@example.com",
+        "tenant_id": "tenant_1",
+        "role": "member",
+    },
 )
 
 MOCK_GUEST_AUTH = AuthContext(
     token="guest_token",
-    record={"id": "user_3", "email": "guest@example.com", "tenant_id": "tenant_1", "role": "guest"},
+    record={
+        "id": "user_3",
+        "email": "guest@example.com",
+        "tenant_id": "tenant_1",
+        "role": "guest",
+    },
 )
 
 
@@ -43,7 +58,9 @@ def _make_collector():
 
 def _mock_pb_with_records(items, total=None):
     pb = AsyncMock()
-    pb.list_records = AsyncMock(return_value={"items": items, "totalItems": total or len(items)})
+    pb.list_records = AsyncMock(
+        return_value={"items": items, "totalItems": total or len(items)}
+    )
     return pb
 
 
@@ -57,9 +74,11 @@ class TestTrackEventBatch:
             AnalyticsEventRequest,
         )
 
-        body = AnalyticsBatchRequest(events=[
-            AnalyticsEventRequest(event_type="page_view", site_id="site_1"),
-        ])
+        body = AnalyticsBatchRequest(
+            events=[
+                AnalyticsEventRequest(event_type="page_view", site_id="site_1"),
+            ]
+        )
 
         result = await track_events_batch(
             body=body,
@@ -80,9 +99,11 @@ class TestTrackEventBatch:
             AnalyticsEventRequest,
         )
 
-        body = AnalyticsBatchRequest(events=[
-            AnalyticsEventRequest(event_type="page_view", site_id="site_1"),
-        ])
+        body = AnalyticsBatchRequest(
+            events=[
+                AnalyticsEventRequest(event_type="page_view", site_id="site_1"),
+            ]
+        )
 
         with pytest.raises(HTTPException) as exc_info:
             await track_events_batch(
@@ -117,10 +138,20 @@ class TestTrackEvent:
 class TestGetDashboard:
     @pytest.mark.asyncio
     async def test_returns_dashboard_with_kpis(self):
-        aggs = [{"total_views": 100, "unique_visitors": 50, "product_views": 30,
-                 "product_impressions": 20, "add_to_carts": 10, "purchases": 5,
-                 "revenue": 250.0, "search_count": 8, "avg_session_duration": 60.0,
-                 "pages_per_session": 2.5}]
+        aggs = [
+            {
+                "total_views": 100,
+                "unique_visitors": 50,
+                "product_views": 30,
+                "product_impressions": 20,
+                "add_to_carts": 10,
+                "purchases": 5,
+                "revenue": 250.0,
+                "search_count": 8,
+                "avg_session_duration": 60.0,
+                "pages_per_session": 2.5,
+            }
+        ]
         pb = _mock_pb_with_records(aggs)
         collector = _make_collector()
 
@@ -139,14 +170,27 @@ class TestGetDashboard:
 
     @pytest.mark.asyncio
     async def test_dashboard_resolves_property_names(self):
-        aggs = [{"total_views": 100, "unique_visitors": 0, "product_views": 0,
-                 "product_impressions": 0, "add_to_carts": 0, "purchases": 0,
-                 "revenue": 0, "search_count": 0, "avg_session_duration": None,
-                 "pages_per_session": None}]
-        top_prop = [{"property_id": "prop_1", "views": 100, "bookings": 0, "revenue": 0.0}]
+        aggs = [
+            {
+                "total_views": 100,
+                "unique_visitors": 0,
+                "product_views": 0,
+                "product_impressions": 0,
+                "add_to_carts": 0,
+                "purchases": 0,
+                "revenue": 0,
+                "search_count": 0,
+                "avg_session_duration": None,
+                "pages_per_session": None,
+            }
+        ]
+        top_prop = [
+            {"property_id": "prop_1", "views": 100, "bookings": 0, "revenue": 0.0}
+        ]
         props = [{"property_id": "prop_1", "name": "Test Product"}]
 
         pb = AsyncMock()
+
         async def side_effect(*args, **kwargs):
             collection = args[0] if args else ""
             # Properties collection lookup
@@ -195,6 +239,7 @@ class TestGetTopProducts:
         ]
 
         pb = AsyncMock()
+
         async def side_effect(*args, **kwargs):
             filter_val = kwargs.get("filter", args[2] if len(args) > 2 else "")
             if "property_id=" in filter_val:
@@ -222,13 +267,24 @@ class TestGetTopProducts:
 class TestGetProductAnalytics:
     @pytest.mark.asyncio
     async def test_returns_product_analytics_with_name(self):
-        kpis = [{"total_views": 50, "unique_visitors": 25, "product_views": 20,
-                 "product_impressions": 10, "add_to_carts": 5, "purchases": 2,
-                 "revenue": 100.0, "search_count": 3, "avg_session_duration": 45.0,
-                 "pages_per_session": 2.0}]
+        kpis = [
+            {
+                "total_views": 50,
+                "unique_visitors": 25,
+                "product_views": 20,
+                "product_impressions": 10,
+                "add_to_carts": 5,
+                "purchases": 2,
+                "revenue": 100.0,
+                "search_count": 3,
+                "avg_session_duration": 45.0,
+                "pages_per_session": 2.0,
+            }
+        ]
         props = [{"property_id": "prop_1", "name": "My Product"}]
 
         pb = AsyncMock()
+
         async def side_effect(*args, **kwargs):
             collection = args[0] if args else ""
             filter_val = kwargs.get("filter", "")
@@ -237,11 +293,26 @@ class TestGetProductAnalytics:
             if "total_views" in filter_val:
                 return {"items": kpis, "totalItems": 1}
             # For trend queries (sorted by date)
-            return {"items": [{"date": "2026-01-01", "site_id": "site_1", "property_id": "prop_1",
-                               "total_views": 50, "unique_visitors": 0, "product_views": 0,
-                               "product_impressions": 0, "add_to_carts": 0, "purchases": 0,
-                               "revenue": 0, "search_count": 0, "avg_session_duration": None,
-                               "pages_per_session": None}], "totalItems": 1}
+            return {
+                "items": [
+                    {
+                        "date": "2026-01-01",
+                        "site_id": "site_1",
+                        "property_id": "prop_1",
+                        "total_views": 50,
+                        "unique_visitors": 0,
+                        "product_views": 0,
+                        "product_impressions": 0,
+                        "add_to_carts": 0,
+                        "purchases": 0,
+                        "revenue": 0,
+                        "search_count": 0,
+                        "avg_session_duration": None,
+                        "pages_per_session": None,
+                    }
+                ],
+                "totalItems": 1,
+            }
 
         pb.list_records = AsyncMock(side_effect=side_effect)
         collector = _make_collector()
@@ -269,13 +340,15 @@ class TestResolvePropertyNames:
     @pytest.mark.asyncio
     async def test_batch_fetches_names(self):
         pb = AsyncMock()
-        pb.list_records = AsyncMock(return_value={
-            "items": [
-                {"property_id": "p1", "name": "Product A"},
-                {"property_id": "p2", "name": "Product B"},
-            ],
-            "totalItems": 2,
-        })
+        pb.list_records = AsyncMock(
+            return_value={
+                "items": [
+                    {"property_id": "p1", "name": "Product A"},
+                    {"property_id": "p2", "name": "Product B"},
+                ],
+                "totalItems": 2,
+            }
+        )
 
         result = await _resolve_property_names(pb, "site_1", ["p1", "p2"])
 

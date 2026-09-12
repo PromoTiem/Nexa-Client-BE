@@ -119,9 +119,7 @@ async def _resolve_auth_context(
 ) -> AuthContext:
     if not credentials:
         logger.warning("missing token")
-        raise HTTPException(
-            status_code=401, detail="Missing authorization token"
-        )
+        raise HTTPException(status_code=401, detail="Missing authorization token")
     try:
         data = await pb.auth_refresh(
             collection=settings.pocketbase_auth_collection,
@@ -135,9 +133,7 @@ async def _resolve_auth_context(
         raise
     if not data["record"].get("tenant_id"):
         logger.warning("client auth missing tenant_id")
-        raise HTTPException(
-            status_code=403, detail="Client access requires tenant_id"
-        )
+        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
     return AuthContext(token=data["token"], record=data["record"])
 
 
@@ -173,9 +169,7 @@ class TenantContext:
     async def enforce_site(self, pb: PocketBaseClient, site_id: str) -> None:
         await ensure_site_tenant(pb, site_id, self.auth)
 
-    async def enforce_file(
-        self, pb: PocketBaseClient, record: dict[str, Any]
-    ) -> None:
+    async def enforce_file(self, pb: PocketBaseClient, record: dict[str, Any]) -> None:
         await ensure_file_tenant(pb, record, self.auth)
 
 

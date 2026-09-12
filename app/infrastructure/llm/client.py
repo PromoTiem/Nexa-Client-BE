@@ -25,7 +25,9 @@ class LLMClient:
     ) -> None:
         self._settings = settings
         self._cache = cache or LLMCache(ttl_hours=settings.cache_ttl_hours)
-        self._tracker = token_tracker or TokenTracker(monthly_budget_usd=settings.monthly_budget_usd)
+        self._tracker = token_tracker or TokenTracker(
+            monthly_budget_usd=settings.monthly_budget_usd
+        )
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0),
         )
@@ -127,7 +129,10 @@ class LLMClient:
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as e:
-            logger.error("llm JSON parse failed", extra={"error": str(e), "response": cleaned[:200]})
+            logger.error(
+                "llm JSON parse failed",
+                extra={"error": str(e), "response": cleaned[:200]},
+            )
             return {"error": "Failed to parse LLM response", "raw": cleaned}
 
     async def _call_openai(
@@ -155,13 +160,20 @@ class LLMClient:
 
         @self._retry
         async def _request() -> httpx.Response:
-            return await self._client.post(OPENAI_API_URL, json=payload, headers=headers)
+            return await self._client.post(
+                OPENAI_API_URL, json=payload, headers=headers
+            )
 
         response = await _request()
 
         if response.status_code != 200:
-            error_msg = f"OpenAI API error {response.status_code}: {response.text[:500]}"
-            logger.error("openai api error", extra={"status": response.status_code, "error": response.text[:200]})
+            error_msg = (
+                f"OpenAI API error {response.status_code}: {response.text[:500]}"
+            )
+            logger.error(
+                "openai api error",
+                extra={"status": response.status_code, "error": response.text[:200]},
+            )
             raise RuntimeError(error_msg)
 
         return response.json()

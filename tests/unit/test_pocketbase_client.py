@@ -299,7 +299,10 @@ class TestPocketBaseClientListRecords:
 
         await client.list_records(collection=TENANTS_COLLECTION, token=SAMPLE_TOKEN)
 
-        assert route.calls.last.request.headers["Authorization"] == f"Bearer {SAMPLE_TOKEN}"
+        assert (
+            route.calls.last.request.headers["Authorization"]
+            == f"Bearer {SAMPLE_TOKEN}"
+        )
 
     @respx.mock
     async def test_invalid_token_raises_401(self):

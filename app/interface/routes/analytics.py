@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, Query
 
 from app.application.services.analytics_service import AnalyticsService
@@ -43,7 +42,9 @@ def _build_analytics_service(
     token: str | None = None,
 ) -> AnalyticsService:
     aggregator = AnalyticsAggregator(pb, token=token)
-    return AnalyticsService(collector=collector, aggregator=aggregator, pb=pb, token=token)
+    return AnalyticsService(
+        collector=collector, aggregator=aggregator, pb=pb, token=token
+    )
 
 
 COLLECTION_PROPERTIES = "properties"
@@ -67,7 +68,10 @@ async def _resolve_property_names(
             filter=filter_expr,
             per_page=500,
         )
-        return {item["property_id"]: item.get("name", item["property_id"]) for item in result.get("items", [])}
+        return {
+            item["property_id"]: item.get("name", item["property_id"])
+            for item in result.get("items", [])
+        }
     except Exception:
         return {pid: pid for pid in property_ids}
 
@@ -92,16 +96,18 @@ async def track_events_batch(
     events = []
     for ev in body.events:
         validate_id(ev.site_id, "site_id")
-        events.append({
-            "event_type": ev.event_type,
-            "site_id": ev.site_id,
-            "property_id": ev.property_id,
-            "tenant_id": ctx.tenant_id or "",
-            "session_id": ev.session_id,
-            "metadata": ev.metadata,
-            "user_agent": ev.user_agent,
-            "timestamp": ev.timestamp,
-        })
+        events.append(
+            {
+                "event_type": ev.event_type,
+                "site_id": ev.site_id,
+                "property_id": ev.property_id,
+                "tenant_id": ctx.tenant_id or "",
+                "session_id": ev.session_id,
+                "metadata": ev.metadata,
+                "user_agent": ev.user_agent,
+                "timestamp": ev.timestamp,
+            }
+        )
 
     result = await service.track_batch(events)
     return BatchTrackResponse(**result)
@@ -213,12 +219,19 @@ async def get_trends(
     start, end = service._date_range(range)
     now = datetime.now(UTC).isoformat()
 
-    breakdown_metrics = {"service_breakdown", "product_breakdown", "traffic_sources", "device_breakdown"}
+    breakdown_metrics = {
+        "service_breakdown",
+        "product_breakdown",
+        "traffic_sources",
+        "device_breakdown",
+    }
     if metric in breakdown_metrics:
         raw = await service.get_breakdown(site_id, metric, start, end)
         data = [TrendBreakdownItem(**item) for item in raw]
     else:
-        raw = await service.get_trend(site_id, metric, start, end, property_id=property_id)
+        raw = await service.get_trend(
+            site_id, metric, start, end, property_id=property_id
+        )
         data = [TrendDataPoint(**item) for item in raw]
 
     return TrendResponse(
@@ -304,7 +317,9 @@ async def get_product_analytics(
     kpis_dict = await service.get_kpis(site_id, start, end, property_id=property_id)
     kpis = KPISummary(**kpis_dict)
 
-    trend_raw = await service.get_trend(site_id, "views_trend", start, end, property_id=property_id)
+    trend_raw = await service.get_trend(
+        site_id, "views_trend", start, end, property_id=property_id
+    )
     views_trend = [TrendDataPoint(**item) for item in trend_raw]
 
     name_map = await _resolve_property_names(pb, site_id, [property_id], ctx.token)
@@ -341,4 +356,3 @@ async def aggregate_analytics(
 
     result = await service.aggregate_date_range(site_id, body.start_date, body.end_date)
     return AggregateResponse(**result)
-

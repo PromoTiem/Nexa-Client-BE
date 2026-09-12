@@ -24,7 +24,9 @@ def _parse_user_agent(user_agent: str) -> tuple[str, str]:
     # Traffic source (simplified)
     if any(k in ua for k in ("google", "bing", "yahoo", "duckduckgo")):
         traffic_source = "search"
-    elif any(k in ua for k in ("facebook", "twitter", "instagram", "linkedin", "tiktok")):
+    elif any(
+        k in ua for k in ("facebook", "twitter", "instagram", "linkedin", "tiktok")
+    ):
         traffic_source = "social"
     else:
         traffic_source = "direct"
@@ -44,7 +46,9 @@ class AnalyticsAggregator:
         try:
             # Fetch all events for this site and date
             filter_expr = f'site_id="{site_id}" && created_at>="{date}T00:00:00Z" && created_at<="{date}T23:59:59Z"'
-            result = await self._pb.list_records(EVENT_COLLECTION, token=self._token, filter=filter_expr, per_page=500)
+            result = await self._pb.list_records(
+                EVENT_COLLECTION, token=self._token, filter=filter_expr, per_page=500
+            )
             events = result.get("items", [])
 
             if not events:
@@ -66,7 +70,9 @@ class AnalyticsAggregator:
                     property_groups.setdefault(prop_id, []).append(event)
 
             for prop_id, prop_events in property_groups.items():
-                prop_agg = self._compute_aggregates(site_id, date, prop_events, property_id=prop_id)
+                prop_agg = self._compute_aggregates(
+                    site_id, date, prop_events, property_id=prop_id
+                )
                 prop_agg_id = f"{site_id}_{date}_{prop_id}"
                 prop_agg["agg_id"] = prop_agg_id
                 prop_agg["property_id"] = prop_id
@@ -145,10 +151,14 @@ class AnalyticsAggregator:
                 session_pages[session_id] = session_pages.get(session_id, 0) + 1
 
         # Top search queries (top 10)
-        top_queries = sorted(search_queries.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_queries = sorted(search_queries.items(), key=lambda x: x[1], reverse=True)[
+            :10
+        ]
 
         avg_session_duration = (
-            sum(session_durations) / len(session_durations) if session_durations else None
+            sum(session_durations) / len(session_durations)
+            if session_durations
+            else None
         )
         pages_per_session = (
             sum(session_pages.values()) / len(session_pages) if session_pages else None

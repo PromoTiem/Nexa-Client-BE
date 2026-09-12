@@ -32,7 +32,10 @@ class AnalyticsCollector:
         self._flush_task = asyncio.create_task(self._periodic_flush())
         logger.info(
             "analytics collector started",
-            extra={"buffer_size": self._buffer_size, "flush_interval": self._flush_interval},
+            extra={
+                "buffer_size": self._buffer_size,
+                "flush_interval": self._flush_interval,
+            },
         )
 
     async def stop(self) -> None:

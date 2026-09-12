@@ -79,8 +79,14 @@ class TestListTenantIsolation:
     async def test_list_templates_filters_by_tenant(self):
         pb = _pb()
         await template_route.list_templates(
-            page=1, per_page=50, sort="-created_at",
-            category=None, tags=None, search=None, ctx=_ctx(), pb=pb
+            page=1,
+            per_page=50,
+            sort="-created_at",
+            category=None,
+            tags=None,
+            search=None,
+            ctx=_ctx(),
+            pb=pb,
         )
         kwargs = pb.list_records.call_args.kwargs
         assert kwargs["collection"] == "templates"
@@ -90,25 +96,33 @@ class TestListTenantIsolation:
     async def test_list_styles_filters_by_tenant(self):
         pb = _pb()
         await style_route.list_styles(ctx=_ctx(), pb=pb)
-        assert f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        assert (
+            f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        )
 
     @pytest.mark.asyncio
     async def test_list_blocks_filters_by_tenant(self):
         pb = _pb()
         await block_route.list_blocks(ctx=_ctx(), pb=pb)
-        assert f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        assert (
+            f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        )
 
     @pytest.mark.asyncio
     async def test_list_pages_filters_by_tenant(self):
         pb = _pb()
         await page_route.list_pages(ctx=_ctx(), pb=pb)
-        assert f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        assert (
+            f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        )
 
     @pytest.mark.asyncio
     async def test_list_sections_filters_by_tenant(self):
         pb = _pb()
         await section_route.list_sections(ctx=_ctx(), pb=pb)
-        assert f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        assert (
+            f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
+        )
 
 
 # ── Tenant isolation on GET endpoints ───────────────────────────────── #
@@ -123,7 +137,8 @@ class TestGetTenantIsolation:
         )
         # The content lookup (collection != tenants) must include the tenant clause.
         content_calls = [
-            c for c in pb.find_one_by_filter.call_args_list
+            c
+            for c in pb.find_one_by_filter.call_args_list
             if c.kwargs["collection"] == "templates"
         ]
         assert content_calls
@@ -151,7 +166,8 @@ class TestGetTenantIsolation:
         pb = _pb(content_record={"id": "r1", "block_id": "blk_1"})
         await block_route.get_block(block_id="blk_1", ctx=_ctx(), pb=pb)
         content_calls = [
-            c for c in pb.find_one_by_filter.call_args_list
+            c
+            for c in pb.find_one_by_filter.call_args_list
             if c.kwargs["collection"] == "blocks"
         ]
         assert content_calls
@@ -162,7 +178,8 @@ class TestGetTenantIsolation:
         pb = _pb(content_record={"id": "r1", "page_id": "pg_1"})
         await page_route.get_page(page_id="pg_1", ctx=_ctx(), pb=pb)
         content_calls = [
-            c for c in pb.find_one_by_filter.call_args_list
+            c
+            for c in pb.find_one_by_filter.call_args_list
             if c.kwargs["collection"] == "pages"
         ]
         assert content_calls
@@ -173,7 +190,8 @@ class TestGetTenantIsolation:
         pb = _pb(content_record={"id": "r1", "section_id": "sec_1"})
         await section_route.get_section(section_id="sec_1", ctx=_ctx(), pb=pb)
         content_calls = [
-            c for c in pb.find_one_by_filter.call_args_list
+            c
+            for c in pb.find_one_by_filter.call_args_list
             if c.kwargs["collection"] == "sections"
         ]
         assert content_calls
@@ -186,12 +204,15 @@ class TestGetTenantIsolation:
 class TestTemplateExpandIsolation:
     @pytest.mark.asyncio
     async def test_expand_style_scoped_by_tenant(self):
-        pb = _pb(content_record={"id": "r1", "template_id": "tpl_1", "style_id": "sty_1"})
+        pb = _pb(
+            content_record={"id": "r1", "template_id": "tpl_1", "style_id": "sty_1"}
+        )
         await template_route.get_template(
             template_id="tpl_1", expand="style", ctx=_ctx(), pb=pb
         )
         style_calls = [
-            c for c in pb.find_one_by_filter.call_args_list
+            c
+            for c in pb.find_one_by_filter.call_args_list
             if c.kwargs["collection"] == "styles"
         ]
         assert style_calls
@@ -210,7 +231,8 @@ class TestTemplateExpandIsolation:
             template_id="tpl_1", expand="pages", ctx=_ctx(), pb=pb
         )
         page_calls = [
-            c for c in pb.list_records.call_args_list
+            c
+            for c in pb.list_records.call_args_list
             if c.kwargs["collection"] == "pages"
         ]
         assert page_calls
@@ -254,6 +276,4 @@ class TestNoDuplicateSitesPrefix:
 
         paths = list(app.openapi()["paths"].keys())
         assert any(p == "/sites/{site_id}/properties" for p in paths)
-        assert all(
-            "/sites/sites/{site_id}/properties" not in p for p in paths
-        )
+        assert all("/sites/sites/{site_id}/properties" not in p for p in paths)
