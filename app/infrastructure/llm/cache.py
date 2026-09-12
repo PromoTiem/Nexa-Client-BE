@@ -13,6 +13,8 @@ class LLMCache:
     def __init__(self, ttl_hours: int = 24) -> None:
         self._cache: dict[str, dict[str, Any]] = {}
         self._ttl_seconds = ttl_hours * 3600
+        self._hits = 0
+        self._misses = 0
 
     def _make_key(self, system: str, user: str) -> str:
         import hashlib
@@ -25,12 +27,15 @@ class LLMCache:
         key = self._make_key(system, user)
         entry = self._cache.get(key)
         if entry is None:
+            self._misses += 1
             return None
 
         if time.time() - entry["created_at"] > self._ttl_seconds:
             del self._cache[key]
+            self._misses += 1
             return None
 
+        self._hits += 1
         logger.debug("llm cache hit", extra={"key": key[:12]})
         return entry["response"]
 
@@ -57,5 +62,8 @@ class LLMCache:
         return len(self._cache)
 
     def hit_rate(self) -> float:
-        """Return cache hit rate (requires external tracking)."""
-        return 0.0  # Placeholder — implement with counters if needed
+        """Return cache hit rate as a percentage (0-100)."""
+        total = self._hits + self._misses
+        if total == 0:
+            return 0.0
+        return round((self._hits / total) * 100, 1)

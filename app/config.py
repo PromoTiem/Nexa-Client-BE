@@ -50,6 +50,8 @@ class AnalyticsSettings(BaseSettings):
     flush_interval_seconds: int = 5
     aggregation_enabled: bool = True
     retention_days: int | None = None  # None = forever
+    daily_aggregation_enabled: bool = True
+    daily_aggregation_hour: int = 2  # UTC hour to run daily aggregation (0-23)
 
 
 class Settings(BaseSettings):

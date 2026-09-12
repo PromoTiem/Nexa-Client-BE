@@ -2,12 +2,25 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+AnalyticsEventType = Literal[
+    "page_view",
+    "product_view",
+    "product_impression",
+    "add_to_cart",
+    "remove_from_cart",
+    "checkout_start",
+    "purchase",
+    "search",
+    "session_start",
+    "session_end",
+]
+
 
 # --- Event Tracking ---
 
 
 class AnalyticsEventRequest(BaseModel):
-    event_type: str
+    event_type: AnalyticsEventType
     site_id: str
     property_id: str | None = None
     session_id: str = ""
@@ -38,12 +51,15 @@ class KPISummary(BaseModel):
     total_views: int = 0
     unique_visitors: int = 0
     product_views: int = 0
+    product_impressions: int = 0
     bookings: int = 0
     orders: int = 0
     revenue: float = 0.0
     conversion_rate: float = 0.0
     avg_order_value: float = 0.0
     search_count: int = 0
+    avg_session_duration: float | None = None
+    pages_per_session: float | None = None
 
 
 class TopItem(BaseModel):
@@ -121,3 +137,20 @@ class ProductAnalyticsResponse(BaseModel):
     kpis: KPISummary
     views_trend: list[TrendDataPoint] = Field(default_factory=list)
     generated_at: str
+
+
+# --- Aggregation ---
+
+
+class AggregateRequest(BaseModel):
+    start_date: str  # YYYY-MM-DD
+    end_date: str  # YYYY-MM-DD
+
+
+class AggregateResponse(BaseModel):
+    site_id: str
+    start_date: str
+    end_date: str
+    dates_aggregated: int
+    dates_skipped: int
+    errors: list[str] = Field(default_factory=list)

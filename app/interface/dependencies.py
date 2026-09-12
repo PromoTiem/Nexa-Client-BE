@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.application.services.media_service import MediaService
@@ -179,6 +179,15 @@ async def get_tenant_context(
         auth=auth,
         tenant_id=auth.record.get("tenant_id"),
     )
+
+
+def get_analytics_collector(request: Request) -> "AnalyticsCollector":
+    from app.infrastructure.analytics.collector import AnalyticsCollector
+
+    collector = getattr(request.app.state, "analytics_collector", None)
+    if collector is None:
+        raise HTTPException(status_code=503, detail="Analytics not configured")
+    return collector
 
 
 async def get_optional_auth_context(

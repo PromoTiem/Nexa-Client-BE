@@ -19,14 +19,8 @@ configure_logging(settings)
 
 limiter = Limiter(key_func=get_remote_address)
 
-# Analytics collector (global, started in lifespan)
-_analytics_collector = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _analytics_collector
-
     # Start analytics collector if enabled
     if settings.analytics.aggregation_enabled:
         from app.infrastructure.analytics.collector import AnalyticsCollector
@@ -38,19 +32,43 @@ async def lifespan(app: FastAPI):
             max_retries=settings.pocketbase_max_retries,
             retry_backoff=settings.pocketbase_retry_backoff,
         )
-        _analytics_collector = AnalyticsCollector(
+        collector = AnalyticsCollector(
             pb=pb,
             buffer_size=settings.analytics.buffer_size,
             flush_interval=settings.analytics.flush_interval_seconds,
         )
-        await _analytics_collector.start()
+        await collector.start()
+        app.state.analytics_collector = collector
+
+    # Start daily aggregation scheduler if enabled
+    if settings.analytics.daily_aggregation_enabled:
+        from app.infrastructure.analytics.scheduler import DailyAggregationScheduler
+        from app.infrastructure.pocketbase.client import PocketBaseClient
+
+        scheduler_pb = PocketBaseClient(
+            base_url=settings.pocketbase_url,
+            timeout=settings.pocketbase_timeout,
+            max_retries=settings.pocketbase_max_retries,
+            retry_backoff=settings.pocketbase_retry_backoff,
+        )
+        scheduler = DailyAggregationScheduler(
+            pb=scheduler_pb,
+            aggregation_hour=settings.analytics.daily_aggregation_hour,
+            retention_days=settings.analytics.retention_days,
+        )
+        await scheduler.start()
+        app.state.analytics_scheduler = scheduler
 
     logger.info("client api started")
     yield
 
+    # Stop analytics scheduler
+    if hasattr(app.state, "analytics_scheduler"):
+        await app.state.analytics_scheduler.stop()
+
     # Stop analytics collector
-    if _analytics_collector:
-        await _analytics_collector.stop()
+    if hasattr(app.state, "analytics_collector"):
+        await app.state.analytics_collector.stop()
 
     logger.info("client api stopped")
 

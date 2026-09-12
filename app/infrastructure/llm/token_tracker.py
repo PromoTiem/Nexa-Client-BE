@@ -96,3 +96,15 @@ class TokenTracker:
     @property
     def total_calls(self) -> int:
         return len(self._calls)
+
+    @property
+    def last_usage(self) -> dict[str, int] | None:
+        """Return token usage from the most recent call, or None."""
+        if not self._calls:
+            return None
+        last = self._calls[-1]
+        return {
+            "input_tokens": last["input_tokens"],
+            "output_tokens": last["output_tokens"],
+            "total_tokens": last["input_tokens"] + last["output_tokens"],
+        }

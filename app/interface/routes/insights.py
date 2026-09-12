@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Any
 
@@ -96,22 +97,85 @@ async def batch_analyze(
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
 
-    # Count properties
+    # Fetch all properties for the site
     props_result = await service._pb.list_records(
         "properties",
         filter=f'site_id="{site_id}"',
-        per_page=1,
+        per_page=500,
     )
-    total = props_result.get("totalItems", 0)
+    properties = props_result.get("items", [])
+    total = len(properties)
+
+    if total == 0:
+        return BatchAnalysisStatusResponse(
+            site_id=site_id,
+            job_id=f"job_{uuid.uuid4().hex[:8]}",
+            total_products=0,
+            queued=0,
+            status="completed",
+        )
+
+    job_id = f"job_{uuid.uuid4().hex[:8]}"
+
+    # Launch background processing
+    asyncio.create_task(
+        _process_batch_analysis(
+            service=service,
+            site_id=site_id,
+            tenant_id=ctx.tenant_id or "",
+            properties=properties,
+            insight_type=body.type,
+            force=body.force,
+            job_id=job_id,
+        )
+    )
 
     return BatchAnalysisStatusResponse(
         site_id=site_id,
-        job_id=f"job_{uuid.uuid4().hex[:8]}",
+        job_id=job_id,
         total_products=total,
         queued=total,
-        status="queued",
+        status="processing",
         estimated_tokens=total * 1250,
         estimated_cost_usd=round(total * 0.0002, 4),
+    )
+
+
+async def _process_batch_analysis(
+    service: InsightService,
+    site_id: str,
+    tenant_id: str,
+    properties: list[dict],
+    insight_type: str,
+    force: bool,
+    job_id: str,
+) -> None:
+    """Background task: analyze each property sequentially."""
+    processed = 0
+    failed = 0
+    for prop in properties:
+        prop_id = prop.get("property_id", "")
+        if not prop_id:
+            continue
+        try:
+            await service.analyze_property(
+                site_id=site_id,
+                property_id=prop_id,
+                force=force,
+                insight_type=insight_type,
+                tenant_id=tenant_id,
+            )
+            processed += 1
+        except Exception as e:
+            failed += 1
+            logger.warning(
+                "batch analyze property failed",
+                extra={"job_id": job_id, "property_id": prop_id, "error": str(e)},
+            )
+
+    logger.info(
+        "batch analysis completed",
+        extra={"job_id": job_id, "site_id": site_id, "processed": processed, "failed": failed},
     )
 
 
@@ -189,7 +253,7 @@ async def get_recommendations(
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
 
-    recs = await service.get_recommendations(site_id)
+    recs = await service.get_recommendations(site_id, insight_type=type)
 
     # Filter by priority if specified
     if priority:
