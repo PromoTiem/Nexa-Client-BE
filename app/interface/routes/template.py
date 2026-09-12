@@ -167,7 +167,11 @@ async def get_template(
     if not expand:
         return resp
 
-    expand_set = {"style", "pages", "sections", "blocks"} if expand == "true" else set(expand.split(","))
+    expand_set = (
+        {"style", "pages", "sections", "blocks"}
+        if expand == "true"
+        else set(expand.split(","))
+    )
     warnings: list[str] = list(resp.warnings) if resp.warnings else []
 
     if "style" in expand_set:
@@ -185,7 +189,13 @@ async def get_template(
         for page in resp.expanded_pages:
             all_section_ids.extend(page.get("section_ids") or [])
         sections = await _resolve_batch(
-            pb, ctx.token, "sections", "section_id", all_section_ids, warnings, tenant_clause
+            pb,
+            ctx.token,
+            "sections",
+            "section_id",
+            all_section_ids,
+            warnings,
+            tenant_clause,
         )
         sections_by_id = {s["section_id"]: s for s in sections}
         for page in resp.expanded_pages:
@@ -202,7 +212,13 @@ async def get_template(
                 for section in page.get("expanded_sections", []):
                     all_block_ids.extend(section.get("block_ids") or [])
             blocks = await _resolve_batch(
-                pb, ctx.token, "blocks", "block_id", all_block_ids, warnings, tenant_clause
+                pb,
+                ctx.token,
+                "blocks",
+                "block_id",
+                all_block_ids,
+                warnings,
+                tenant_clause,
             )
             blocks_by_id = {b["block_id"]: b for b in blocks}
             for page in resp.expanded_pages:
@@ -216,7 +232,13 @@ async def get_template(
             for page in resp.expanded_pages:
                 all_block_ids.extend(page.get("block_ids") or [])
             blocks = await _resolve_batch(
-                pb, ctx.token, "blocks", "block_id", all_block_ids, warnings, tenant_clause
+                pb,
+                ctx.token,
+                "blocks",
+                "block_id",
+                all_block_ids,
+                warnings,
+                tenant_clause,
             )
             blocks_by_id = {b["block_id"]: b for b in blocks}
             for page in resp.expanded_pages:

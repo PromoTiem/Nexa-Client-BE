@@ -47,9 +47,7 @@ async def refresh(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> AuthRefreshResponse:
     if not credentials:
-        raise HTTPException(
-            status_code=401, detail="Missing authorization token"
-        )
+        raise HTTPException(status_code=401, detail="Missing authorization token")
     data = await pb.auth_refresh(
         collection=settings.pocketbase_auth_collection,
         token=credentials.credentials,

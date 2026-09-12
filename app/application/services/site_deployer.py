@@ -277,7 +277,7 @@ async def deploy_site(
     # Add _headers file for CSP fix
     csp_value = "connect-src 'self' https://s3.promotiem.dpdns.org https://api-client.promotiem.dpdns.org"
     _headers_content = f"/*\n  {csp_value}\n"
-    files["/_headers"] = _headers_content.encode('utf-8')
+    files["/_headers"] = _headers_content.encode("utf-8")
 
     pages_url = await deploy_to_pages(project_name, files, cf)
 

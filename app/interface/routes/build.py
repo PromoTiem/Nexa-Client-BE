@@ -53,9 +53,7 @@ def _record_to_response(record: dict[str, Any]) -> BuildResponse:
     )
 
 
-async def _resolve_site_tenant(
-    site_id: str, pb: PocketBaseClient, token: str
-) -> str:
+async def _resolve_site_tenant(site_id: str, pb: PocketBaseClient, token: str) -> str:
     site = await pb.find_one_by_filter(
         collection="sites",
         filter_expr=f'site_id="{site_id}"',
@@ -146,9 +144,7 @@ async def create_build(
 
     tenant = ctx.tenant_id
     if not tenant:
-        raise HTTPException(
-            status_code=403, detail="Client access requires tenant_id"
-        )
+        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
 
     tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
 

@@ -183,14 +183,14 @@ class PocketBaseClient:
                 return await client.post(url, json=payload)
 
         response = await self._execute_with_retry(
-            self._make_retry("auth_admin", "_admins"), _do_request,
+            self._make_retry("auth_admin", "_admins"),
+            _do_request,
         )
         if response.status_code == 400:
             raise HTTPException(status_code=401, detail="Invalid admin credentials")
         return self._handle_response(
             response, "auth_admin", "_admins", not_found_detail="Admin auth failed"
         )
-
 
     async def list_records(
         self,

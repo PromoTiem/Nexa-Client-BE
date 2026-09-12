@@ -35,7 +35,9 @@ router = APIRouter()
 logger = get_logger("user_routes")
 
 
-def _record_to_response(record: dict[str, Any], tenant: TenantResponse | None = None) -> UserResponse:
+def _record_to_response(
+    record: dict[str, Any], tenant: TenantResponse | None = None
+) -> UserResponse:
     return UserResponse(
         id=record["id"],
         email=record.get("email", ""),
@@ -118,6 +120,8 @@ async def update_my_profile(
         token=ctx.token,
     )
     return _record_to_response(record)
+
+
 @router.post("/me/password", status_code=204)
 async def change_my_password(
     body: UserChangePasswordRequest,
@@ -150,9 +154,6 @@ async def change_my_password(
     logger.info("user password changed", extra={"user_id": ctx.user_id})
 
     return Response(status_code=204)
-
-
-
 
 
 # ── Tenant admin — user CRUD ────────────────────────────────────
