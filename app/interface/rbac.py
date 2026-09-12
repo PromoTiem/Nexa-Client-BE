@@ -46,6 +46,9 @@ class Permission(str, Enum):
 
     STORAGE_ACCESS = "storage:access"
 
+    ANALYTICS_TRACK = "analytics:track"
+    ANALYTICS_VIEW = "analytics:view"
+    INSIGHTS_ACCESS = "insights:access"
 
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     UserRole.OWNER: frozenset(
@@ -75,6 +78,9 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.MEDIA_LIST,
             Permission.MEDIA_DELETE,
             Permission.STORAGE_ACCESS,
+            Permission.ANALYTICS_TRACK,
+            Permission.ANALYTICS_VIEW,
+            Permission.INSIGHTS_ACCESS,
         }
     ),
     UserRole.ADMIN: frozenset(
@@ -104,6 +110,9 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.MEDIA_LIST,
             Permission.MEDIA_DELETE,
             Permission.STORAGE_ACCESS,
+            Permission.ANALYTICS_TRACK,
+            Permission.ANALYTICS_VIEW,
+            Permission.INSIGHTS_ACCESS,
         }
     ),
     UserRole.MEMBER: frozenset(
@@ -125,6 +134,9 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.MEDIA_UPLOAD,
             Permission.MEDIA_LIST,
             Permission.STORAGE_ACCESS,
+            Permission.ANALYTICS_TRACK,
+            Permission.ANALYTICS_VIEW,
+            Permission.INSIGHTS_ACCESS,
         }
     ),
     UserRole.GUEST: frozenset(
@@ -138,6 +150,7 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.SECTIONS_LIST,
             Permission.BUILDS_LIST,
             Permission.MEDIA_LIST,
+            Permission.ANALYTICS_VIEW,
         }
     ),
 }

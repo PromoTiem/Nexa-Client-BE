@@ -656,9 +656,9 @@ class TestPocketBaseClientAuthHeaders:
     def test_uses_explicit_token_over_static_token(self):
         client = PocketBaseClient(base_url=PB_BASE, static_token="static.val")
 
-        headers = client._get_auth_headers(token="bearer mytoken")
+        headers = client._get_auth_headers(token="mytoken")
 
-        assert headers == {"Authorization": "Bearer bearer mytoken"}
+        assert headers == {"Authorization": "Bearer mytoken"}
 
 
 class TestCreateStaticPbClient:
