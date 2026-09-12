@@ -182,6 +182,7 @@ class AnalyticsAggregator:
             agg_id = agg.get("agg_id", "")
             existing = await self._pb.list_records(
                 COLLECTION,
+                token=self._token,
                 filter=f'agg_id="{agg_id}"',
                 per_page=1,
             )
@@ -189,9 +190,11 @@ class AnalyticsAggregator:
 
             if items:
                 record_id = items[0]["id"]
-                await self._pb.update_record(COLLECTION, record_id, agg)
+                await self._pb.update_record(
+                    COLLECTION, record_id, agg, token=self._token
+                )
             else:
-                await self._pb.create_record(COLLECTION, agg)
+                await self._pb.create_record(COLLECTION, agg, token=self._token)
         except Exception as e:
             logger.error(
                 "analytics aggregate upsert failed",
