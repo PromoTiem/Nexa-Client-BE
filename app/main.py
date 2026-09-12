@@ -19,19 +19,58 @@ configure_logging(settings)
 
 limiter = Limiter(key_func=get_remote_address)
 
+
+async def _admin_pb_client():
+    """Build a PocketBase client authed as superuser for background tasks.
+
+    The collector flush and daily scheduler run without a request context,
+    so they cannot use per-request user tokens. Without a token the PB
+    client raises 401 before any HTTP call and background writes silently
+    fail — events are dropped and aggregates are never persisted.
+    """
+    from app.infrastructure.pocketbase.client import PocketBaseClient
+
+    pb = PocketBaseClient(
+        base_url=settings.pocketbase_url,
+        timeout=settings.pocketbase_timeout,
+        max_retries=settings.pocketbase_max_retries,
+        retry_backoff=settings.pocketbase_retry_backoff,
+    )
+    if not settings.pocketbase_admin_email or not settings.pocketbase_admin_password:
+        logger.warning(
+            "PB admin credentials unset; analytics background writes disabled"
+        )
+        return pb
+    try:
+        auth = await pb.auth_admin(
+            settings.pocketbase_admin_email,
+            settings.pocketbase_admin_password,
+        )
+        token = auth.get("token", "")
+        if not token:
+            raise ValueError("empty admin token")
+        return PocketBaseClient(
+            base_url=settings.pocketbase_url,
+            timeout=settings.pocketbase_timeout,
+            max_retries=settings.pocketbase_max_retries,
+            retry_backoff=settings.pocketbase_retry_backoff,
+            static_token=token,
+        )
+    except Exception as e:
+        logger.error(
+            "PB admin auth failed; analytics background writes disabled",
+            extra={"error": str(e)},
+        )
+        return pb
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Start analytics collector if enabled
     if settings.analytics.aggregation_enabled:
         from app.infrastructure.analytics.collector import AnalyticsCollector
-        from app.infrastructure.pocketbase.client import PocketBaseClient
 
-        pb = PocketBaseClient(
-            base_url=settings.pocketbase_url,
-            timeout=settings.pocketbase_timeout,
-            max_retries=settings.pocketbase_max_retries,
-            retry_backoff=settings.pocketbase_retry_backoff,
-        )
+        pb = await _admin_pb_client()
         collector = AnalyticsCollector(
             pb=pb,
             buffer_size=settings.analytics.buffer_size,
@@ -43,14 +82,8 @@ async def lifespan(app: FastAPI):
     # Start daily aggregation scheduler if enabled
     if settings.analytics.daily_aggregation_enabled:
         from app.infrastructure.analytics.scheduler import DailyAggregationScheduler
-        from app.infrastructure.pocketbase.client import PocketBaseClient
 
-        scheduler_pb = PocketBaseClient(
-            base_url=settings.pocketbase_url,
-            timeout=settings.pocketbase_timeout,
-            max_retries=settings.pocketbase_max_retries,
-            retry_backoff=settings.pocketbase_retry_backoff,
-        )
+        scheduler_pb = await _admin_pb_client()
         scheduler = DailyAggregationScheduler(
             pb=scheduler_pb,
             aggregation_hour=settings.analytics.daily_aggregation_hour,
