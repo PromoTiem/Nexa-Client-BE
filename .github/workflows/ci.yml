@@ -293,7 +293,7 @@ jobs:
           files: "test-reports/**/*.xml"
           comment_mode: off
 
-    notify-failure:
+  notify-failure:
     name: Notify on Failure
     needs: [test-unit, test-integration, test-e2e, test-storage, lint]
     runs-on: ubuntu-latest
