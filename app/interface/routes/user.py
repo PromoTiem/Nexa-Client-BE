@@ -1,5 +1,5 @@
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -11,6 +11,7 @@ from app.interface.dependencies import (
     get_pocketbase_client,
     get_tenant_context,
 )
+from app.interface.dto.tenant import TenantResponse
 from app.interface.dto.user import (
     UserChangePasswordRequest,
     UserCreateRequest,
@@ -20,8 +21,12 @@ from app.interface.dto.user import (
     UserResponse,
     UserUpdateRequest,
 )
-from app.interface.dto.tenant import TenantResponse
-from app.interface.rbac import Permission, UserRole, check_role_permission, enforce_permission
+from app.interface.rbac import (
+    Permission,
+    UserRole,
+    check_role_permission,
+    enforce_permission,
+)
 from app.interface.route_helpers import build_filter, sanitize_filter_value, validate_id
 
 COLLECTION = "users"
@@ -30,7 +35,7 @@ router = APIRouter()
 logger = get_logger("user_routes")
 
 
-def _record_to_response(record: Dict[str, Any], tenant: Optional[TenantResponse] = None) -> UserResponse:
+def _record_to_response(record: dict[str, Any], tenant: TenantResponse | None = None) -> UserResponse:
     return UserResponse(
         id=record["id"],
         email=record.get("email", ""),
@@ -64,7 +69,7 @@ async def get_my_profile(
         token=ctx.token,
     )
 
-    tenant: Optional[TenantResponse] = None
+    tenant: TenantResponse | None = None
     if ctx.tenant_id:
         try:
             tenant_record = await pb.find_one_by_filter(
@@ -157,9 +162,9 @@ async def change_my_password(
 async def list_users(
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
-    status: Optional[str] = Query(None),
-    role: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
+    status: str | None = Query(None),
+    role: str | None = Query(None),
+    search: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> UserListResponse:

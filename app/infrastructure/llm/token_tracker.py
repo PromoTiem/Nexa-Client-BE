@@ -1,6 +1,5 @@
-import json
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from app.infrastructure.logging import get_logger
 
@@ -11,7 +10,7 @@ class TokenTracker:
     """Track LLM token usage and costs."""
 
     # Pricing per 1M tokens (USD)
-    PRICING: dict[str, dict[str, float]] = {
+    PRICING: ClassVar[dict[str, dict[str, float]]] = {
         "gpt-4o-mini": {"input": 0.15, "output": 0.60},
         "gpt-4o": {"input": 2.50, "output": 10.00},
         "claude-3-5-haiku": {"input": 0.25, "output": 1.25},

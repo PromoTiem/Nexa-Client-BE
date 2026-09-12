@@ -1,9 +1,11 @@
 from fastapi import APIRouter
 
+from app.interface.routes.analytics import router as analytics_router
 from app.interface.routes.auth import router as auth_router
 from app.interface.routes.block import router as block_router
 from app.interface.routes.build import router as build_router
 from app.interface.routes.health import router as health_router
+from app.interface.routes.insights import router as insights_router
 from app.interface.routes.media import router as media_router
 from app.interface.routes.page import router as page_router
 from app.interface.routes.property import public_property_router
@@ -15,8 +17,6 @@ from app.interface.routes.storage import router as storage_router
 from app.interface.routes.style import router as style_router
 from app.interface.routes.template import router as template_router
 from app.interface.routes.user import router as user_router
-from app.interface.routes.analytics import router as analytics_router
-from app.interface.routes.insights import router as insights_router
 
 router = APIRouter()
 

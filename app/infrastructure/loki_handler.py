@@ -2,7 +2,6 @@ import copy
 import json
 import logging
 import queue
-from typing import Dict
 
 from logging_loki import LokiQueueHandler
 from logging_loki import emitter as loki_emitter
@@ -59,7 +58,7 @@ class _NexaLokiEmitterV1(loki_emitter.LokiEmitterV1):
         )
         if resp.status_code != self.success_response_code:
             raise ValueError(
-                "Unexpected Loki API response status code: {0}".format(resp.status_code)
+                f"Unexpected Loki API response status code: {resp.status_code}"
             )
 
 
@@ -69,7 +68,7 @@ class NexaLokiHandler(LokiQueueHandler):
     def __init__(
         self,
         url: str,
-        tags: Dict[str, str],
+        tags: dict[str, str],
         level: int = logging.INFO,
         max_queue_size: int = 1024,
     ) -> None:

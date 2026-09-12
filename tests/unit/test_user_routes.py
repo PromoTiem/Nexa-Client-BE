@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import HTTPException
 
 from app.interface.auth_models import AuthContext
@@ -7,15 +8,14 @@ from app.interface.dependencies import TenantContext
 from app.interface.rbac import Permission, has_permission
 from app.interface.routes.user import (
     _record_to_response,
-    get_my_profile,
-    update_my_profile,
-    list_users,
     create_user,
-    get_user,
-    update_user,
     delete_user,
+    get_my_profile,
+    get_user,
+    list_users,
+    update_my_profile,
+    update_user,
 )
-
 
 MOCK_ADMIN_AUTH = AuthContext(
     token="admin_token",
@@ -202,7 +202,7 @@ class TestListUsers:
             }
         )
 
-        result = await list_users(
+        await list_users(
             page=1, per_page=30, status="active", role=None, search=None,
             ctx=_tenant_ctx(MOCK_ADMIN_AUTH),
             pb=pb,

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -7,12 +7,19 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.application.services.media_service import MediaService
 from app.application.services.storage_service import StorageFileService
 from app.config import Settings, get_settings
+from app.infrastructure.analytics.collector import AnalyticsCollector
 from app.infrastructure.cloudflare.client import CloudflareClient
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.storage.client import StorageClient
-from app.interface.auth_models import AuthContext  # noqa: F401 – re-export for backward compat
-from app.interface.route_helpers import ensure_file_tenant, ensure_site_tenant, ensure_tenant_owns
+from app.interface.auth_models import (
+    AuthContext,
+)
+from app.interface.route_helpers import (
+    ensure_file_tenant,
+    ensure_site_tenant,
+    ensure_tenant_owns,
+)
 
 logger = get_logger("auth")
 
@@ -106,7 +113,7 @@ def get_storage_file_service(
 
 
 async def _resolve_auth_context(
-    credentials: Optional[HTTPAuthorizationCredentials],
+    credentials: HTTPAuthorizationCredentials | None,
     settings: Settings,
     pb: PocketBaseClient,
 ) -> AuthContext:
@@ -135,7 +142,7 @@ async def _resolve_auth_context(
 
 
 async def get_auth_context(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> AuthContext:
@@ -145,7 +152,7 @@ async def get_auth_context(
 @dataclass
 class TenantContext:
     auth: AuthContext
-    tenant_id: Optional[str]
+    tenant_id: str | None
 
     @property
     def token(self) -> str:
@@ -155,19 +162,19 @@ class TenantContext:
     def user_id(self) -> str:
         return self.auth.record["id"]
 
-    def owns(self, record: Dict[str, Any]) -> bool:
+    def owns(self, record: dict[str, Any]) -> bool:
         if not self.tenant_id:
             return True
         return record.get("tenant_id") == self.tenant_id
 
-    def enforce_owns(self, record: Dict[str, Any]) -> None:
+    def enforce_owns(self, record: dict[str, Any]) -> None:
         ensure_tenant_owns(record, self.auth)
 
     async def enforce_site(self, pb: PocketBaseClient, site_id: str) -> None:
         await ensure_site_tenant(pb, site_id, self.auth)
 
     async def enforce_file(
-        self, pb: PocketBaseClient, record: Dict[str, Any]
+        self, pb: PocketBaseClient, record: dict[str, Any]
     ) -> None:
         await ensure_file_tenant(pb, record, self.auth)
 
@@ -182,7 +189,6 @@ async def get_tenant_context(
 
 
 def get_analytics_collector(request: Request) -> "AnalyticsCollector":
-    from app.infrastructure.analytics.collector import AnalyticsCollector
 
     collector = getattr(request.app.state, "analytics_collector", None)
     if collector is None:
@@ -191,10 +197,10 @@ def get_analytics_collector(request: Request) -> "AnalyticsCollector":
 
 
 async def get_optional_auth_context(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
-) -> Optional[AuthContext]:
+) -> AuthContext | None:
     if not credentials:
         return None
     return await _resolve_auth_context(credentials, settings, pb)

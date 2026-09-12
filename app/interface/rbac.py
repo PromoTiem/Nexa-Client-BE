@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Dict, FrozenSet
 
 from fastapi import HTTPException
 
@@ -52,7 +51,7 @@ class Permission(str, Enum):
     INSIGHTS_ACCESS = "insights:access"
 
 
-ROLE_PERMISSIONS: Dict[UserRole, FrozenSet[Permission]] = {
+ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     UserRole.OWNER: frozenset({
         Permission.SITES_LIST,
         Permission.SITES_CREATE,
@@ -179,7 +178,7 @@ def can_manage_users(auth: AuthContext) -> bool:
     return has_permission(auth, Permission.USERS_LIST)
 
 
-_ROLE_HIERARCHY: Dict[UserRole, int] = {
+_ROLE_HIERARCHY: dict[UserRole, int] = {
     UserRole.OWNER: 0,
     UserRole.ADMIN: 1,
     UserRole.MEMBER: 2,

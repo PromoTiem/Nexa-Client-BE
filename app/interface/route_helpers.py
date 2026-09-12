@@ -1,10 +1,11 @@
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from fastapi import HTTPException
 
-from app.interface.auth_models import AuthContext
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.interface.auth_models import AuthContext
 
 # ----- ID validation -------------------------------------------------- #
 
@@ -31,7 +32,7 @@ def sanitize_filter_value(value: str) -> str:
 _SORT_FIELD_RE = re.compile(r"^-?[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
-def validate_sort(value: str, allowed_fields: Optional[List[str]] = None) -> str:
+def validate_sort(value: str, allowed_fields: list[str] | None = None) -> str:
     """Validate sort parameter to prevent injection.
 
     Args:
@@ -68,18 +69,18 @@ def validate_sort(value: str, allowed_fields: Optional[List[str]] = None) -> str
 
 # ----- filter building -------------------------------------------------- #
 
-def build_filter(parts: List[str]) -> Optional[str]:
+def build_filter(parts: list[str]) -> str | None:
     """Join filter parts with ``&&`` into a single PocketBase filter expression."""
     return " && ".join(parts) if parts else None
 
 
 # ----- auth / tenant helpers ------------------------------------------- #
 
-def auth_tenant(auth: AuthContext) -> Optional[str]:
+def auth_tenant(auth: AuthContext) -> str | None:
     return auth.record.get("tenant_id")
 
 
-def ensure_tenant_owns(record: Dict[str, Any], auth: AuthContext) -> None:
+def ensure_tenant_owns(record: dict[str, Any], auth: AuthContext) -> None:
     tenant = auth_tenant(auth)
     if tenant and record.get("tenant_id") != tenant:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -114,7 +115,7 @@ async def ensure_site_tenant(
 
 async def ensure_file_tenant(
     pb: PocketBaseClient,
-    record: Dict[str, Any],
+    record: dict[str, Any],
     auth: AuthContext,
 ) -> None:
     """Verify that a file record's parent site belongs to the caller's tenant.
@@ -134,7 +135,7 @@ async def ensure_file_tenant(
 async def tenant_record_id(
     pb: PocketBaseClient,
     token: str,
-    tenant_id: Optional[str],
+    tenant_id: str | None,
 ) -> str:
     """Resolve the public business ``tenant_id`` to its internal PocketBase record id.
 
@@ -151,7 +152,7 @@ async def tenant_record_id(
 async def tenant_filter(
     pb: PocketBaseClient,
     token: str,
-    tenant_id: Optional[str],
+    tenant_id: str | None,
 ) -> str:
     """Build a PocketBase filter clause scoping records to the caller's tenant.
 
@@ -166,7 +167,7 @@ async def tenant_filter(
     return f'tenant_id="{record_id}"'
 
 
-def combine_filter(base: str, tenant_clause: Optional[str]) -> str:
+def combine_filter(base: str, tenant_clause: str | None) -> str:
     """AND a base filter expression with a tenant clause, parenthesizing the base.
 
     Used by tenant-scoped GET handlers so the tenant condition cannot be escaped by
@@ -196,9 +197,9 @@ async def record_id_to_public_id(
     pb: PocketBaseClient,
     collection: str,
     public_field: str,
-    record_id: Optional[str],
+    record_id: str | None,
     token: str,
-) -> Optional[str]:
+) -> str | None:
     if not record_id:
         return None
     try:
@@ -215,11 +216,11 @@ async def record_id_to_public_id(
 # ----- record field mapping -------------------------------------------- #
 
 async def map_site_record(
-    record: Dict[str, Any],
+    record: dict[str, Any],
     token: str,
     pb: PocketBaseClient,
     fields: Sequence[str] = ("tenant_id",),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve internal PocketBase IDs to public IDs for the given fields."""
     mapped = dict(record)
     field_collection_map = {

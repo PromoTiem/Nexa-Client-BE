@@ -7,7 +7,7 @@ from app.config import LLMSettings
 from app.infrastructure.llm.cache import LLMCache
 from app.infrastructure.llm.token_tracker import TokenTracker
 from app.infrastructure.logging import get_logger
-from app.infrastructure.retry_utils import execute_with_retry, make_retry_decorator
+from app.infrastructure.retry_utils import make_retry_decorator
 
 logger = get_logger("llm.client")
 
