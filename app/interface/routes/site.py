@@ -42,6 +42,9 @@ from app.interface.route_helpers import (
 )
 
 COLLECTION = "sites"
+# Read-only PocketBase view that mirrors `sites` without the heavy `config`
+# blob. Created by the `sites_create_list_view` schema migration.
+SITES_LIST_VIEW = "sites_list"
 
 router = APIRouter()
 logger = get_logger("site_routes")
@@ -89,7 +92,7 @@ async def list_sites(
         tenant_pb_id = await tenant_record_id(pb, ctx.token, effective_tenant)
         filter_expr = f'tenant_id="{tenant_pb_id}"'
     result = await pb.list_records(
-        collection=COLLECTION,
+        collection=SITES_LIST_VIEW,
         token=ctx.token,
         filter=filter_expr,
         sort=sort,
