@@ -42,7 +42,7 @@ class InsightService:
         """Run AI analysis on a property. Returns cached result if available."""
 
         # Fetch property
-        prop = await self._pb.find_record_by_filter(
+        prop = await self._pb.find_one_by_filter(
             COLLECTION_PROPERTIES,
             f'property_id="{property_id}" && site_id="{site_id}"',
         )

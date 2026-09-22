@@ -1,3 +1,4 @@
+import httpx
 import logging
 import traceback
 
@@ -45,6 +46,27 @@ async def cloudflare_configuration_exception_handler(
     return await http_exception_handler(
         request,
         HTTPException(status_code=500, detail=str(exc)),
+    )
+
+
+async def httpx_error_handler(
+    request: Request, exc: httpx.HTTPError
+) -> JSONResponse:
+    logger.error(
+        "upstream service error",
+        extra={
+            "method": request.method,
+            "path": str(request.url.path),
+            "status": 502,
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "client_ip": _extract_client_ip(request),
+        },
+    )
+
+    return JSONResponse(
+        status_code=502,
+        content={"detail": "Upstream service unavailable"},
     )
 
 
@@ -103,4 +125,5 @@ def register_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(httpx.HTTPError, httpx_error_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
