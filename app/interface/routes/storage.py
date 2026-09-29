@@ -22,7 +22,7 @@ from app.interface.dto.storage import (
     UploadUrlResponse,
 )
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import validate_id
+from app.interface.route_helpers import resolve_page_size, validate_id
 
 router = APIRouter()
 
@@ -94,7 +94,8 @@ async def list_storage(
     site_id: str = Query(...),
     page_id: str | None = Query(None),
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int | None = Query(None, ge=1, le=100),
+    per_page: int | None = Query(None, ge=1, le=100),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     service: StorageFileService = Depends(get_storage_file_service),
@@ -104,6 +105,7 @@ async def list_storage(
     if page_id is not None:
         validate_id(page_id, "page_id")
     await ctx.enforce_site(pb, site_id)
+    limit = resolve_page_size(limit, per_page)
     result = await service.list_files(site_id, page_id, page, limit, pb, ctx.token)
     items = [_record_to_response(r) for r in result.get("items", [])]
     return StorageListResponse(
@@ -154,12 +156,10 @@ async def update_storage(
 ) -> StorageFileResponse:
     enforce_permission(ctx.auth, Permission.STORAGE_ACCESS)
     validate_id(file_id, "file_id")
-    updates: dict[str, Any] = {}
-    if body.name is not None:
-        updates["name"] = body.name
-    if body.page_id is not None:
-        validate_id(body.page_id, "page_id")
-        updates["page_id"] = body.page_id
+    updates = body.model_dump(exclude_unset=True)
+    for field in ("page_id", "original_file_id"):
+        if updates.get(field) is not None:
+            validate_id(updates[field], field)
     if not updates:
         record = await service.get_record(file_id, pb, ctx.token)
         await ctx.enforce_file(pb, record)

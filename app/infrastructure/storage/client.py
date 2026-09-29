@@ -190,7 +190,8 @@ class StorageClient:
             "CORSRules": [
                 {
                     "AllowedOrigins": allowed_origins,
-                    "AllowedMethods": ["GET", "HEAD", "OPTIONS", "PUT"],
+                    "ID": "nexa-upload",
+                    "AllowedMethods": ["GET", "HEAD", "PUT"],
                     "AllowedHeaders": allowed_headers,
                     "ExposeHeaders": [
                         "Content-Length",
@@ -204,7 +205,24 @@ class StorageClient:
 
         async def _do_put_cors() -> None:
             async with self._client() as s3:
-                await s3.put_bucket_cors(Bucket=bucket, CORSConfiguration=cors)
+                try:
+                    existing = await s3.get_bucket_cors(Bucket=bucket)
+                except ClientError as exc:
+                    if (
+                        exc.response.get("Error", {}).get("Code")
+                        != "NoSuchCORSConfiguration"
+                    ):
+                        raise
+                    existing = {}
+                rules = [
+                    rule
+                    for rule in existing.get("CORSRules", [])
+                    if rule.get("ID") != "nexa-upload"
+                ]
+                rules.extend(cors["CORSRules"])
+                await s3.put_bucket_cors(
+                    Bucket=bucket, CORSConfiguration={"CORSRules": rules}
+                )
 
         try:
             await self._execute_with_retry("set_bucket_cors", _do_put_cors)
@@ -332,6 +350,48 @@ class StorageClient:
             return await self._execute_with_retry("bucket_exists", _do_head)
         except _STORAGE_ERRORS as exc:
             _raise_storage_error("bucket_exists", exc, bucket=bucket)
+
+    async def empty_bucket(self, bucket: str) -> None:
+        """Remove all objects and versions; abort on partial deletion errors."""
+
+        async def _empty() -> None:
+            async with self._client() as s3:
+                # Both enabled and suspended versioning retain old versions.
+                versioning = await s3.get_bucket_versioning(Bucket=bucket)
+                versioned = versioning.get("Status") in {"Enabled", "Suspended"}
+                operation = "list_object_versions" if versioned else "list_objects_v2"
+                paginator = s3.get_paginator(operation)
+                async for page in paginator.paginate(Bucket=bucket):
+                    if versioned:
+                        objects = [
+                            {"Key": obj["Key"], "VersionId": obj["VersionId"]}
+                            for obj in page.get("Versions", [])
+                            + page.get("DeleteMarkers", [])
+                        ]
+                    else:
+                        objects = [
+                            {"Key": obj["Key"]} for obj in page.get("Contents", [])
+                        ]
+                    for offset in range(0, len(objects), 1000):
+                        result = await s3.delete_objects(
+                            Bucket=bucket,
+                            Delete={
+                                "Objects": objects[offset : offset + 1000],
+                                "Quiet": True,
+                            },
+                        )
+                        if result.get("Errors"):
+                            raise HTTPException(
+                                status_code=502, detail="Storage cleanup incomplete"
+                            )
+
+        try:
+            await self._execute_with_retry("empty_bucket", _empty)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "NoSuchBucket":
+                _raise_storage_error("empty_bucket", exc, bucket=bucket)
+        except _CONN_ERRORS as exc:
+            _raise_storage_error("empty_bucket", exc, bucket=bucket)
 
     async def delete_bucket(self, bucket: str) -> None:
         async def _do_delete() -> None:

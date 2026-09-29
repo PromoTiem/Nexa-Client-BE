@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
+from app.application.services.public_submission_service import create_booking
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
@@ -17,7 +18,9 @@ from app.interface.dto.property import (
     PropertyListResponse,
     PropertyResponse,
     PropertyUpdateRequest,
+    PublicBookingRequest,
 )
+from app.interface.rate_limits import public_submission_limit
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     build_filter,
@@ -216,31 +219,7 @@ async def update_property(
     )
     await ctx.enforce_site(pb, existing["site_id"])
 
-    updates: dict[str, Any] = {}
-    if body.type is not None:
-        updates["type"] = body.type
-    if body.subtype is not None:
-        updates["subtype"] = body.subtype
-    if body.name is not None:
-        updates["name"] = body.name
-    if body.slug is not None:
-        updates["slug"] = body.slug
-    if body.status is not None:
-        updates["status"] = body.status
-    if body.excerpt is not None:
-        updates["excerpt"] = body.excerpt
-    if body.featured_image is not None:
-        updates["featured_image"] = body.featured_image
-    if body.seo is not None:
-        updates["seo"] = body.seo
-    if body.fields is not None:
-        updates["fields"] = body.fields
-    if body.groups is not None:
-        updates["groups"] = body.groups
-    if body.metadata is not None:
-        updates["metadata"] = body.metadata
-    if body.ordering is not None:
-        updates["ordering"] = body.ordering
+    updates = body.model_dump(exclude_unset=True)
 
     if not updates:
         return _record_to_response(existing)
@@ -296,37 +275,15 @@ async def delete_property(
 
 @public_property_router.post(
     "/sites/{site_id}/properties",
+    dependencies=[Depends(public_submission_limit)],
     response_model=PropertyResponse,
     status_code=201,
 )
 async def create_public_property(
     site_id: str,
-    body: PropertyCreateRequest,
+    body: PublicBookingRequest,
     pb: PocketBaseClient = Depends(get_static_pocketbase_client),
 ) -> PropertyResponse:
     validate_id(site_id, "site_id")
-    validate_id(body.property_id, "property_id")
-
-    service = PropertyService()
-    record = await service.create_property(
-        pb=pb,
-        token=pb._static_token,
-        user_id="",
-        site_id=site_id,
-        data={
-            "property_id": body.property_id,
-            "type": body.type,
-            "subtype": body.subtype,
-            "name": body.name,
-            "slug": body.slug,
-            "status": body.status,
-            "excerpt": body.excerpt,
-            "featured_image": body.featured_image,
-            "seo": body.seo,
-            "fields": body.fields,
-            "groups": body.groups,
-            "metadata": body.metadata,
-            "ordering": body.ordering,
-        },
-    )
+    record = await create_booking(pb, site_id, body.model_dump())
     return _record_to_response(record)

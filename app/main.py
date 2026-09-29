@@ -1,23 +1,22 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app.config import get_settings
 from app.infrastructure.logging import configure_logging, get_logger
 from app.interface.exception_handlers import register_exception_handlers
+from app.interface.limiter import limiter
 from app.interface.middlewares.access_log import AccessLogMiddleware
 from app.interface.middlewares.dynamic_cors import DynamicCORSMiddleware
+from app.interface.middlewares.public_body_limit import PublicBodyLimitMiddleware
 from app.interface.routes import router
 
 logger = get_logger("main")
 
 settings = get_settings()
 configure_logging(settings)
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 async def _admin_pb_client():
@@ -95,6 +94,15 @@ async def lifespan(app: FastAPI):
     logger.info("client api started")
     yield
 
+    import asyncio
+
+    from app.interface.routes.insights import _batch_tasks
+
+    tasks = list(_batch_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
     # Stop analytics scheduler
     if hasattr(app.state, "analytics_scheduler"):
         await app.state.analytics_scheduler.stop()
@@ -118,6 +126,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 register_exception_handlers(app)
 app.add_middleware(AccessLogMiddleware)
+app.add_middleware(PublicBodyLimitMiddleware)
 app.add_middleware(
     DynamicCORSMiddleware,
     allowed_origins=settings.cors_origins,

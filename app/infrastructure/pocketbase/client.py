@@ -136,6 +136,15 @@ class PocketBaseClient:
             response, "auth", collection, not_found_detail="Auth collection not found"
         )
 
+    async def request_password_reset(self, collection: str, email: str) -> None:
+        """Delegate token delivery and confirmation to PocketBase's reset flow."""
+        url = f"{self._base_url}/api/collections/{collection}/request-password-reset"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.post(url, json={"email": email})
+        # PocketBase deliberately acknowledges nonexistent accounts as well.
+        if response.status_code != 204:
+            raise HTTPException(status_code=503, detail="Password recovery unavailable")
+
     async def auth_refresh(
         self,
         collection: str,

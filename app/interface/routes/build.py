@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.interface.dependencies import (
     TenantContext,
     get_pocketbase_client,
@@ -21,6 +22,7 @@ from app.interface.route_helpers import (
     record_id_to_public_id,
     tenant_filter,
     tenant_record_id,
+    tenant_resource_id,
     validate_id,
     validate_sort,
 )
@@ -56,7 +58,7 @@ def _record_to_response(record: dict[str, Any]) -> BuildResponse:
 async def _resolve_site_tenant(site_id: str, pb: PocketBaseClient, token: str) -> str:
     site = await pb.find_one_by_filter(
         collection="sites",
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=token,
     )
     return site.get("tenant_id", "")
@@ -92,9 +94,9 @@ async def list_builds(
         tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
         filter_parts.append(tenant_clause)
     if site_id:
-        filter_parts.append(f'site_id="{site_id}"')
+        filter_parts.append(f'site_id="{sanitize_filter_value(site_id)}"')
     if status:
-        filter_parts.append(f'status="{status}"')
+        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     filter_expr = build_filter(filter_parts)
 
     result = await pb.list_records(
@@ -125,7 +127,7 @@ async def get_build(
     validate_id(build_id, "build_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'build_id="{build_id}"',
+        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
         token=ctx.token,
     )
     await _enforce_build_tenant(record, ctx, pb)
@@ -150,7 +152,7 @@ async def create_build(
 
     site = await pb.find_one_by_filter(
         collection="sites",
-        filter_expr=f'site_id="{body.site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(body.site_id)}"',
         token=ctx.token,
     )
     if site.get("tenant_id") != tenant_pb_id:
@@ -165,6 +167,9 @@ async def create_build(
     }
     if body.template_id:
         validate_id(body.template_id, "template_id")
+        await tenant_resource_id(
+            pb, "templates", "template_id", body.template_id, ctx.token, ctx.tenant_id
+        )
         data["template_id"] = body.template_id
     if body.content_id is not None:
         data["content_id"] = body.content_id
@@ -195,18 +200,12 @@ async def update_build(
     validate_id(build_id, "build_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'build_id="{build_id}"',
+        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
         token=ctx.token,
     )
     await _enforce_build_tenant(record, ctx, pb)
 
-    updates: dict[str, Any] = {}
-    if body.status is not None:
-        updates["status"] = body.status
-    if body.content_id is not None:
-        updates["content_id"] = body.content_id
-    if body.config is not None:
-        updates["config"] = body.config
+    updates = body.model_dump(exclude_unset=True)
 
     if updates:
         record = await pb.update_record(
@@ -229,7 +228,7 @@ async def delete_build(
     validate_id(build_id, "build_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'build_id="{build_id}"',
+        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
         token=ctx.token,
     )
     await _enforce_build_tenant(record, ctx, pb)

@@ -2,13 +2,12 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
+from app.application.serve_models import ServeStatus as ServeStatus
+
 T = TypeVar("T")
 
 BulkDeleteStatus = Literal["deleted", "not_found", "error"]
 UploadStatus = Literal["pending", "uploaded"]
-ServeStatus = Literal[
-    "requested", "verifying", "verified", "serving", "live", "stopped", "failed"
-]
 
 
 class PaginatedResponse(BaseModel, Generic[T]):

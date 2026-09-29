@@ -27,6 +27,7 @@ from app.interface.dto.serve import (
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     map_site_record,
+    sanitize_filter_value,
     validate_id,
 )
 
@@ -39,7 +40,7 @@ async def _load_site(site_id: str, ctx: TenantContext, pb: PocketBaseClient) -> 
     validate_id(site_id, "site_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
     mapped = await map_site_record(record, ctx.token, pb, fields=("tenant_id",))

@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8002
 
+    rate_limit_storage_uri: str = "memory://"
+
     # PocketBase (IDP)
     pocketbase_url: str = "https://your-pocketbase-instance.example.com"
     pocketbase_auth_collection: str = "users"

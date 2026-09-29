@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.application.services.account_service import enforce_account_access
 from app.application.services.media_service import MediaService
 from app.application.services.storage_service import StorageFileService
 from app.config import Settings, get_settings
@@ -74,9 +75,8 @@ async def get_static_pocketbase_client(
         max_retries=settings.pocketbase_max_retries,
         retry_backoff=settings.pocketbase_retry_backoff,
     )
-    auth_info = await pb.auth_with_password(
-        collection=settings.pocketbase_auth_collection,
-        identity=settings.pocketbase_admin_email,
+    auth_info = await pb.auth_admin(
+        email=settings.pocketbase_admin_email,
         password=settings.pocketbase_admin_password,
     )
     return PocketBaseClient(
@@ -131,9 +131,7 @@ async def _resolve_auth_context(
             extra={"status": exc.status_code, "detail": str(exc.detail)},
         )
         raise
-    if not data["record"].get("tenant_id"):
-        logger.warning("client auth missing tenant_id")
-        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
+    enforce_account_access(data["record"])
     return AuthContext(token=data["token"], record=data["record"])
 
 

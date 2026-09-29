@@ -296,23 +296,17 @@ class TestSiteFileServiceBulkDelete:
         service._allowed_mime = frozenset({"image/png"})
 
         pb = AsyncMock()
-        pb.find_one_by_filter = AsyncMock(
-            side_effect=lambda collection, **kwargs: (
-                {
-                    "id": "rec_1",
-                    "file_id": "file_1",
-                    "site_id": "site_1",
-                    "bucket": "bucket_1",
-                    "path": "site_1/test.png",
-                }
-                if collection != "sites"
-                else {
-                    "id": "site_rec",
-                    "site_id": "site_1",
-                    "tenant_id": "t1",
-                }
-            )
-        )
+        pb.find_one_by_filter.side_effect = [
+            {
+                "id": "rec_1",
+                "file_id": "file_1",
+                "site_id": "site_1",
+                "bucket": "bucket_1",
+                "path": "site_1/test.png",
+            },
+            {"id": "site_rec", "tenant_id": "pb_t1"},
+            {"id": "pb_t1", "tenant_id": "t1"},
+        ]
         pb.delete_record = AsyncMock(return_value=None)
 
         from app.interface.dependencies import AuthContext

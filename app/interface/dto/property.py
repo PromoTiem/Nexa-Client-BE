@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.interface.dto.common import PaginatedResponse
 
@@ -94,6 +94,13 @@ class PropertyUpdateRequest(BaseModel):
             raise ValueError("status must be 'draft' or 'published'")
         return v
 
+    @field_validator("name", "status", "fields", "groups", "ordering")
+    @classmethod
+    def reject_null_fields(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
 
 class PropertyResponse(BaseModel):
     id: str
@@ -120,3 +127,21 @@ class PropertyResponse(BaseModel):
 
 
 PropertyListResponse = PaginatedResponse[PropertyResponse]
+
+
+class PublicBookingMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    service_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
+    source: Literal["website"] = "website"
+
+
+class PublicBookingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    property_id: str | None = Field(
+        default=None, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$"
+    )
+    type: Literal["booking_submission"] = "booking_submission"
+    name: str = Field(min_length=1, max_length=200)
+    status: Literal["draft"] = "draft"
+    fields: list[PropertyField] = Field(max_length=30)
+    metadata: PublicBookingMetadata

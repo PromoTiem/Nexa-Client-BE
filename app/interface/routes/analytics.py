@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, Query
 
 from app.application.services.analytics_service import AnalyticsService
@@ -6,6 +5,7 @@ from app.infrastructure.analytics.aggregator import AnalyticsAggregator
 from app.infrastructure.analytics.collector import AnalyticsCollector
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.interface.dependencies import (
     TenantContext,
     get_analytics_collector,
@@ -29,8 +29,9 @@ from app.interface.dto.analytics import (
     TrendDataPoint,
     TrendResponse,
 )
+from app.interface.rate_limits import tenant_limit
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import validate_id
+from app.interface.route_helpers import enforce_property_site, validate_id
 
 logger = get_logger("analytics_routes")
 
@@ -43,7 +44,9 @@ def _build_analytics_service(
     token: str | None = None,
 ) -> AnalyticsService:
     aggregator = AnalyticsAggregator(pb, token=token)
-    return AnalyticsService(collector=collector, aggregator=aggregator, pb=pb, token=token)
+    return AnalyticsService(
+        collector=collector, aggregator=aggregator, pb=pb, token=token
+    )
 
 
 COLLECTION_PROPERTIES = "properties"
@@ -58,8 +61,12 @@ async def _resolve_property_names(
     """Batch-fetch property names for a list of property_ids. Returns {property_id: name}."""
     if not property_ids:
         return {}
-    or_filter = " || ".join(f'property_id="{pid}"' for pid in property_ids)
-    filter_expr = f'site_id="{site_id}" && ({or_filter}) && deleted_at=""'
+    or_filter = " || ".join(
+        f'property_id="{sanitize_filter_value(pid)}"' for pid in property_ids
+    )
+    filter_expr = (
+        f'site_id="{sanitize_filter_value(site_id)}" && ({or_filter}) && deleted_at=""'
+    )
     try:
         result = await pb.list_records(
             COLLECTION_PROPERTIES,
@@ -67,7 +74,10 @@ async def _resolve_property_names(
             filter=filter_expr,
             per_page=500,
         )
-        return {item["property_id"]: item.get("name", item["property_id"]) for item in result.get("items", [])}
+        return {
+            item["property_id"]: item.get("name", item["property_id"])
+            for item in result.get("items", [])
+        }
     except Exception:
         return {pid: pid for pid in property_ids}
 
@@ -77,6 +87,7 @@ async def _resolve_property_names(
 
 @router.post(
     "/analytics/events",
+    dependencies=[Depends(tenant_limit("/analytics/events", "100/minute"))],
     response_model=BatchTrackResponse,
     status_code=201,
 )
@@ -89,19 +100,28 @@ async def track_events_batch(
     enforce_permission(ctx.auth, Permission.ANALYTICS_TRACK)
     service = _build_analytics_service(collector, pb, ctx.token)
 
+    for site_id in {ev.site_id for ev in body.events}:
+        validate_id(site_id, "site_id")
+        await ctx.enforce_site(pb, site_id)
+    for ev in body.events:
+        if ev.property_id:
+            await enforce_property_site(pb, ev.site_id, ev.property_id, ctx.token)
+
     events = []
     for ev in body.events:
         validate_id(ev.site_id, "site_id")
-        events.append({
-            "event_type": ev.event_type,
-            "site_id": ev.site_id,
-            "property_id": ev.property_id,
-            "tenant_id": ctx.tenant_id or "",
-            "session_id": ev.session_id,
-            "metadata": ev.metadata,
-            "user_agent": ev.user_agent,
-            "timestamp": ev.timestamp,
-        })
+        events.append(
+            {
+                "event_type": ev.event_type,
+                "site_id": ev.site_id,
+                "property_id": ev.property_id,
+                "tenant_id": ctx.tenant_id or "",
+                "session_id": ev.session_id,
+                "metadata": ev.metadata,
+                "user_agent": ev.user_agent,
+                "timestamp": ev.timestamp,
+            }
+        )
 
     result = await service.track_batch(events)
     return BatchTrackResponse(**result)
@@ -109,6 +129,7 @@ async def track_events_batch(
 
 @router.post(
     "/analytics/events/track",
+    dependencies=[Depends(tenant_limit("/analytics/events/track", "100/minute"))],
     response_model=EventTrackResponse,
     status_code=201,
 )
@@ -120,6 +141,9 @@ async def track_event(
 ) -> EventTrackResponse:
     enforce_permission(ctx.auth, Permission.ANALYTICS_TRACK)
     validate_id(body.site_id, "site_id")
+    await ctx.enforce_site(pb, body.site_id)
+    if body.property_id:
+        await enforce_property_site(pb, body.site_id, body.property_id, ctx.token)
     service = _build_analytics_service(collector, pb, ctx.token)
 
     event_id = await service.track_event(
@@ -140,6 +164,7 @@ async def track_event(
 
 @router.get(
     "/analytics/dashboard/{site_id}",
+    dependencies=[Depends(tenant_limit("/analytics/dashboard/{site_id}", "30/minute"))],
     response_model=DashboardResponse,
 )
 async def get_dashboard(
@@ -152,6 +177,9 @@ async def get_dashboard(
 ) -> DashboardResponse:
     enforce_permission(ctx.auth, Permission.ANALYTICS_VIEW)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(pb, site_id)
+    if property_id:
+        await enforce_property_site(pb, site_id, property_id, ctx.token)
     service = _build_analytics_service(collector, pb, ctx.token)
 
     from datetime import UTC, datetime
@@ -162,7 +190,7 @@ async def get_dashboard(
     kpis_dict = await service.get_kpis(site_id, start, end, property_id=property_id)
     kpis = KPISummary(**kpis_dict)
 
-    kpis_change = await service.get_kpis_change(site_id, range)
+    kpis_change = await service.get_kpis_change(site_id, range, property_id=property_id)
 
     top_raw = await service.get_top_properties(site_id, "views", start, end, limit=5)
     prop_ids = [t["property_id"] for t in top_raw if t.get("property_id")]
@@ -192,13 +220,17 @@ async def get_dashboard(
 
 @router.get(
     "/analytics/trends/{site_id}",
+    dependencies=[Depends(tenant_limit("/analytics/trends/{site_id}", "30/minute"))],
     response_model=TrendResponse,
 )
 async def get_trends(
     site_id: str,
-    range: str = Query("30d"),
-    metric: str = Query("views_trend"),
-    period: str = Query("daily"),
+    range: str = Query("30d", pattern="^(7d|30d|90d|1y|all)$"),
+    metric: str = Query(
+        "views_trend",
+        pattern="^(views_trend|unique_visitors_trend|product_views_trend|product_impressions_trend|bookings_trend|orders_trend|revenue_trend|search_trend|avg_session_duration_trend|pages_per_session_trend|service_breakdown|product_breakdown|traffic_sources|device_breakdown)$",
+    ),
+    period: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
     property_id: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
@@ -206,6 +238,9 @@ async def get_trends(
 ) -> TrendResponse:
     enforce_permission(ctx.auth, Permission.ANALYTICS_VIEW)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(pb, site_id)
+    if property_id:
+        await enforce_property_site(pb, site_id, property_id, ctx.token)
     service = _build_analytics_service(collector, pb, ctx.token)
 
     from datetime import UTC, datetime
@@ -213,12 +248,19 @@ async def get_trends(
     start, end = service._date_range(range)
     now = datetime.now(UTC).isoformat()
 
-    breakdown_metrics = {"service_breakdown", "product_breakdown", "traffic_sources", "device_breakdown"}
+    breakdown_metrics = {
+        "service_breakdown",
+        "product_breakdown",
+        "traffic_sources",
+        "device_breakdown",
+    }
     if metric in breakdown_metrics:
         raw = await service.get_breakdown(site_id, metric, start, end)
         data = [TrendBreakdownItem(**item) for item in raw]
     else:
-        raw = await service.get_trend(site_id, metric, start, end, property_id=property_id)
+        raw = await service.get_trend(
+            site_id, metric, start, end, property_id=property_id, period=period
+        )
         data = [TrendDataPoint(**item) for item in raw]
 
     return TrendResponse(
@@ -233,12 +275,15 @@ async def get_trends(
 
 @router.get(
     "/analytics/top-products/{site_id}",
+    dependencies=[
+        Depends(tenant_limit("/analytics/top-products/{site_id}", "30/minute"))
+    ],
     response_model=TopProductsResponse,
 )
 async def get_top_products(
     site_id: str,
-    range: str = Query("30d"),
-    metric: str = Query("views"),
+    range: str = Query("30d", pattern="^(7d|30d|90d|1y|all)$"),
+    metric: str = Query("views", pattern="^(views|bookings|revenue)$"),
     limit: int = Query(10, ge=1, le=50),
     type: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
@@ -247,6 +292,7 @@ async def get_top_products(
 ) -> TopProductsResponse:
     enforce_permission(ctx.auth, Permission.ANALYTICS_VIEW)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(pb, site_id)
     service = _build_analytics_service(collector, pb, ctx.token)
 
     from datetime import UTC, datetime
@@ -254,20 +300,13 @@ async def get_top_products(
     start, end = service._date_range(range)
     now = datetime.now(UTC).isoformat()
 
-    raw = await service.get_top_properties(site_id, metric, start, end, limit=limit)
-
-    prop_ids = [t["property_id"] for t in raw if t.get("property_id")]
-    name_map = await _resolve_property_names(pb, site_id, prop_ids, ctx.token)
+    raw = await service.get_top_properties(
+        site_id, metric, start, end, limit=limit, property_type=type
+    )
 
     items = [
-        TopProductItem(
-            property_id=t["property_id"],
-            name=name_map.get(t["property_id"], t["property_id"]),
-            views=t.get("views", 0),
-            bookings=t.get("bookings", 0),
-            revenue=t.get("revenue", 0.0),
-        )
-        for t in raw
+        TopProductItem(**{key: value for key, value in item.items() if key != "orders"})
+        for item in raw
     ]
 
     return TopProductsResponse(
@@ -281,19 +320,25 @@ async def get_top_products(
 
 @router.get(
     "/analytics/product/{site_id}/{property_id}",
+    dependencies=[
+        Depends(tenant_limit("/analytics/product/{site_id}/{property_id}", "30/minute"))
+    ],
     response_model=ProductAnalyticsResponse,
 )
 async def get_product_analytics(
     site_id: str,
     property_id: str,
-    range: str = Query("30d"),
+    range: str = Query("30d", pattern="^(7d|30d|90d|1y|all)$"),
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     collector: AnalyticsCollector = Depends(get_analytics_collector),
 ) -> ProductAnalyticsResponse:
     enforce_permission(ctx.auth, Permission.ANALYTICS_VIEW)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(pb, site_id)
     validate_id(property_id, "property_id")
+    if property_id:
+        await enforce_property_site(pb, site_id, property_id, ctx.token)
     service = _build_analytics_service(collector, pb, ctx.token)
 
     from datetime import UTC, datetime
@@ -304,7 +349,9 @@ async def get_product_analytics(
     kpis_dict = await service.get_kpis(site_id, start, end, property_id=property_id)
     kpis = KPISummary(**kpis_dict)
 
-    trend_raw = await service.get_trend(site_id, "views_trend", start, end, property_id=property_id)
+    trend_raw = await service.get_trend(
+        site_id, "views_trend", start, end, property_id=property_id
+    )
     views_trend = [TrendDataPoint(**item) for item in trend_raw]
 
     name_map = await _resolve_property_names(pb, site_id, [property_id], ctx.token)
@@ -325,6 +372,7 @@ async def get_product_analytics(
 
 @router.post(
     "/analytics/aggregate/{site_id}",
+    dependencies=[Depends(tenant_limit("/analytics/aggregate/{site_id}", "10/minute"))],
     response_model=AggregateResponse,
     status_code=200,
 )
@@ -337,8 +385,10 @@ async def aggregate_analytics(
 ) -> AggregateResponse:
     enforce_permission(ctx.auth, Permission.ANALYTICS_TRACK)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(pb, site_id)
     service = _build_analytics_service(collector, pb, ctx.token)
 
-    result = await service.aggregate_date_range(site_id, body.start_date, body.end_date)
+    result = await service.aggregate_date_range(
+        site_id, body.start_date.isoformat(), body.end_date.isoformat()
+    )
     return AggregateResponse(**result)
-

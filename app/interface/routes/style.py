@@ -11,7 +11,12 @@ from app.interface.dependencies import (
 )
 from app.interface.dto.style import StyleListResponse, StyleResponse
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import combine_filter, tenant_filter, validate_id
+from app.interface.route_helpers import (
+    combine_filter,
+    tenant_filter,
+    validate_id,
+    validate_sort,
+)
 
 COLLECTION = "styles"
 
@@ -43,6 +48,7 @@ async def list_styles(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> StyleListResponse:
     enforce_permission(ctx.auth, Permission.STYLES_LIST)
+    sort = validate_sort(sort, allowed_fields=["created_at", "updated_at", "name"])
     tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
     result = await pb.list_records(
         collection=COLLECTION,

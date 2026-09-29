@@ -1,4 +1,19 @@
+import os
+
+import pytest
+
+import app.config
 from app.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(monkeypatch, tmp_path):
+    monkeypatch.setattr(app.config, "_CONFIG_FILE", tmp_path / "absent.yaml")
+    prefixes = tuple(name.upper() for name in app.config.Settings.model_fields)
+    for key in list(os.environ):
+        if key.upper().startswith(prefixes):
+            monkeypatch.delenv(key)
+    app.config.get_settings.cache_clear()
 
 
 class TestSettingsDefaults:
@@ -65,3 +80,13 @@ class TestNestedSettings:
     def test_storage_max_file_bytes(self):
         settings = Settings()
         assert settings.storage.max_file_bytes == 10 * 1024 * 1024
+
+
+def test_yaml_and_environment_precedence(monkeypatch, tmp_path):
+    config = tmp_path / "settings.yaml"
+    config.write_text("app_port: 9001\n")
+    monkeypatch.setattr(app.config, "_CONFIG_FILE", config)
+    assert Settings().app_port == 9001
+    monkeypatch.setenv("APP_PORT", "9002")
+    assert Settings().app_port == 9002
+    assert Settings(app_port=9003).app_port == 9003

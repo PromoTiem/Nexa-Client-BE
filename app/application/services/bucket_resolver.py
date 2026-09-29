@@ -1,6 +1,7 @@
 from app.application.services.utils import SITES_COLLECTION, sanitize_name
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.infrastructure.storage.client import StorageClient
 
 logger = get_logger("bucket_resolver")
@@ -20,7 +21,7 @@ async def ensure_site_bucket(
 ) -> str:
     site = await pb.find_one_by_filter(
         collection=SITES_COLLECTION,
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=token,
     )
 
@@ -30,16 +31,17 @@ async def ensure_site_bucket(
     if not s3_exists:
         await storage.create_bucket(bucket_name)
         await storage.set_bucket_public_policy(bucket_name)
-        if site_base_domain:
-            cors_origins = [
-                f"https://{site_base_domain}",
-                f"https://*.{site_base_domain}",
-            ]
-            await storage.set_bucket_cors(bucket_name, cors_origins)
         logger.info(
             "storage bucket created for site",
             extra={"site_id": site_id, "bucket": bucket_name},
         )
+
+    if site_base_domain:
+        cors_origins = [
+            f"https://{site_base_domain}",
+            f"https://*.{site_base_domain}",
+        ]
+        await storage.set_bucket_cors(bucket_name, cors_origins)
 
     if not site.get("bucket_name"):
         try:

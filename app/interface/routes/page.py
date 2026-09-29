@@ -11,7 +11,12 @@ from app.interface.dependencies import (
 )
 from app.interface.dto.page import PageListResponse, PageResponse
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import combine_filter, tenant_filter, validate_id
+from app.interface.route_helpers import (
+    combine_filter,
+    tenant_filter,
+    validate_id,
+    validate_sort,
+)
 
 COLLECTION = "pages"
 
@@ -46,6 +51,7 @@ async def list_pages(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> PageListResponse:
     enforce_permission(ctx.auth, Permission.PAGES_LIST)
+    sort = validate_sort(sort, allowed_fields=["created_at", "updated_at", "name"])
     tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
     result = await pb.list_records(
         collection=COLLECTION,

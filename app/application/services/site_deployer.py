@@ -13,6 +13,7 @@ from app.infrastructure.cloudflare.client import (
     CloudflareZoneNotFoundError,
 )
 from app.infrastructure.logging import get_logger
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
 logger = get_logger("site_deployer")
 
@@ -245,7 +246,7 @@ async def cleanup_all_domains(
     try:
         rec = await pb.find_one_by_filter(
             collection="domains",
-            filter_expr=f'id="{domain_record_id}"',
+            filter_expr=f'id="{sanitize_filter_value(domain_record_id)}"',
             token=token,
         )
     except Exception as e:

@@ -95,7 +95,7 @@ class TestListTenantIsolation:
     @pytest.mark.asyncio
     async def test_list_styles_filters_by_tenant(self):
         pb = _pb()
-        await style_route.list_styles(ctx=_ctx(), pb=pb)
+        await style_route.list_styles(ctx=_ctx(), pb=pb, sort="-created_at")
         assert (
             f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
         )
@@ -103,7 +103,7 @@ class TestListTenantIsolation:
     @pytest.mark.asyncio
     async def test_list_blocks_filters_by_tenant(self):
         pb = _pb()
-        await block_route.list_blocks(ctx=_ctx(), pb=pb)
+        await block_route.list_blocks(ctx=_ctx(), pb=pb, sort="-created_at")
         assert (
             f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
         )
@@ -111,7 +111,7 @@ class TestListTenantIsolation:
     @pytest.mark.asyncio
     async def test_list_pages_filters_by_tenant(self):
         pb = _pb()
-        await page_route.list_pages(ctx=_ctx(), pb=pb)
+        await page_route.list_pages(ctx=_ctx(), pb=pb, sort="-created_at")
         assert (
             f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
         )
@@ -119,7 +119,7 @@ class TestListTenantIsolation:
     @pytest.mark.asyncio
     async def test_list_sections_filters_by_tenant(self):
         pb = _pb()
-        await section_route.list_sections(ctx=_ctx(), pb=pb)
+        await section_route.list_sections(ctx=_ctx(), pb=pb, sort="-created_at")
         assert (
             f'tenant_id="{TENANT_RECORD}"' in pb.list_records.call_args.kwargs["filter"]
         )

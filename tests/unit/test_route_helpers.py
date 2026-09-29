@@ -81,31 +81,23 @@ class TestEnsureTenantOwns:
 
 class TestEnsureSiteTenant:
     @pytest.mark.asyncio
-    async def test_no_tenant_on_auth_passes(self):
+    async def test_no_tenant_on_auth_is_rejected(self):
         pb = AsyncMock()
         auth = AuthContext(token="tok", record={"email": "a@b.com"})
-        await ensure_site_tenant(pb, "site_1", auth)
+        with pytest.raises(HTTPException) as exc:
+            await ensure_site_tenant(pb, "site_1", auth)
+        assert exc.value.status_code == 403
         pb.find_one_by_filter.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_site_belongs_to_tenant_passes(self):
         pb = AsyncMock()
-        pb.find_one_by_filter = AsyncMock(
-            return_value={"id": "pb_t1", "tenant_id": "pb_t1"}
-        )
+        pb.find_one_by_filter.side_effect = [
+            {"id": "site", "tenant_id": "pb_t1"},
+            {"id": "pb_t1", "tenant_id": "tenant_abc"},
+        ]
         auth = AuthContext(token="tok", record={"tenant_id": "tenant_abc"})
-
-        async def mock_record_to_public(*args, **kwargs):
-            return "tenant_abc"
-
-        import app.interface.route_helpers as rh
-
-        original = rh.record_id_to_public_id
-        rh.record_id_to_public_id = mock_record_to_public
-        try:
-            await ensure_site_tenant(pb, "site_1", auth)
-        finally:
-            rh.record_id_to_public_id = original
+        await ensure_site_tenant(pb, "site_1", auth)
 
     @pytest.mark.asyncio
     async def test_site_belongs_to_different_tenant_raises_404(self):
@@ -139,11 +131,13 @@ class TestEnsureFileTenant:
         await ensure_file_tenant(pb, record, auth)
 
     @pytest.mark.asyncio
-    async def test_no_site_id_passes(self):
+    async def test_no_site_id_is_rejected(self):
         pb = AsyncMock()
         auth = AuthContext(token="tok", record={"tenant_id": "t1"})
         record = {"name": "file_1"}
-        await ensure_file_tenant(pb, record, auth)
+        with pytest.raises(HTTPException) as exc:
+            await ensure_file_tenant(pb, record, auth)
+        assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_site_belongs_to_tenant_passes(self):

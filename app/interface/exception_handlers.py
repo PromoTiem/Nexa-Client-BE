@@ -1,7 +1,7 @@
-import httpx
 import logging
 import traceback
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -37,6 +37,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     return JSONResponse(
         status_code=status,
         content={"detail": exc.detail},
+        headers=exc.headers,
     )
 
 
@@ -49,9 +50,7 @@ async def cloudflare_configuration_exception_handler(
     )
 
 
-async def httpx_error_handler(
-    request: Request, exc: httpx.HTTPError
-) -> JSONResponse:
+async def httpx_error_handler(request: Request, exc: httpx.HTTPError) -> JSONResponse:
     logger.error(
         "upstream service error",
         extra={

@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.application.services.insight_service import InsightService
 from app.config import Settings, get_settings
@@ -22,12 +22,14 @@ from app.interface.dto.insights import (
     SEOAnalysisResponse,
     SiteSummaryResponse,
 )
+from app.interface.rate_limits import tenant_limit
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import validate_id
+from app.interface.route_helpers import enforce_property_site, validate_id
 
 logger = get_logger("insight_routes")
 
 router = APIRouter()
+_batch_tasks: set[asyncio.Task] = set()
 
 
 def _get_insight_service(
@@ -51,6 +53,9 @@ def _get_insight_service(
 
 @router.post(
     "/insights/analyze/{site_id}/{property_id}",
+    dependencies=[
+        Depends(tenant_limit("/insights/analyze/{site_id}/{property_id}", "10/minute"))
+    ],
     response_model=dict,
 )
 async def analyze_property(
@@ -62,7 +67,9 @@ async def analyze_property(
 ) -> dict:
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(service._pb, site_id)
     validate_id(property_id, "property_id")
+    await enforce_property_site(service._pb, site_id, property_id, ctx.token)
 
     force = body.force if body else False
     insight_type = body.type if body else "all"
@@ -79,6 +86,9 @@ async def analyze_property(
 
 @router.post(
     "/insights/batch-analyze/{site_id}",
+    dependencies=[
+        Depends(tenant_limit("/insights/batch-analyze/{site_id}", "3/minute"))
+    ],
     response_model=BatchAnalysisStatusResponse,
     status_code=202,
 )
@@ -90,14 +100,12 @@ async def batch_analyze(
 ) -> BatchAnalysisStatusResponse:
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(service._pb, site_id)
 
-    # Fetch all properties for the site
-    props_result = await service._pb.list_records(
-        "properties",
-        filter=f'site_id="{site_id}"',
-        per_page=500,
-    )
-    properties = props_result.get("items", [])
+    if len(_batch_tasks) >= 20:
+        raise HTTPException(status_code=429, detail="Analysis queue is full")
+
+    properties = await service.list_batch_properties(site_id, body.property_type)
     total = len(properties)
 
     if total == 0:
@@ -111,10 +119,12 @@ async def batch_analyze(
 
     job_id = f"job_{uuid.uuid4().hex[:8]}"
 
+    if len(_batch_tasks) >= 20:
+        raise HTTPException(status_code=429, detail="Analysis queue is full")
+
     # Launch background processing
-    _batch_task = asyncio.create_task(  # noqa: RUF006
-        _process_batch_analysis(
-            service=service,
+    _batch_task = asyncio.create_task(
+        service.process_batch(
             site_id=site_id,
             tenant_id=ctx.tenant_id or "",
             properties=properties,
@@ -123,6 +133,9 @@ async def batch_analyze(
             job_id=job_id,
         )
     )
+
+    _batch_tasks.add(_batch_task)
+    _batch_task.add_done_callback(_batch_tasks.discard)
 
     return BatchAnalysisStatusResponse(
         site_id=site_id,
@@ -135,46 +148,11 @@ async def batch_analyze(
     )
 
 
-async def _process_batch_analysis(
-    service: InsightService,
-    site_id: str,
-    tenant_id: str,
-    properties: list[dict],
-    insight_type: str,
-    force: bool,
-    job_id: str,
-) -> None:
-    """Background task: analyze each property sequentially."""
-    processed = 0
-    failed = 0
-    for prop in properties:
-        prop_id = prop.get("property_id", "")
-        if not prop_id:
-            continue
-        try:
-            await service.analyze_property(
-                site_id=site_id,
-                property_id=prop_id,
-                force=force,
-                insight_type=insight_type,
-                tenant_id=tenant_id,
-            )
-            processed += 1
-        except Exception as e:
-            failed += 1
-            logger.warning(
-                "batch analyze property failed",
-                extra={"job_id": job_id, "property_id": prop_id, "error": str(e)},
-            )
-
-    logger.info(
-        "batch analysis completed",
-        extra={"job_id": job_id, "site_id": site_id, "processed": processed, "failed": failed},
-    )
-
-
 @router.get(
     "/insights/score/{site_id}/{property_id}",
+    dependencies=[
+        Depends(tenant_limit("/insights/score/{site_id}/{property_id}", "30/minute"))
+    ],
     response_model=QualityScoreResponse,
 )
 async def get_score(
@@ -185,12 +163,16 @@ async def get_score(
 ) -> QualityScoreResponse:
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(service._pb, site_id)
     validate_id(property_id, "property_id")
+    await enforce_property_site(service._pb, site_id, property_id, ctx.token)
 
     result = await service.get_score(site_id, property_id)
     if not result:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Insight not found. Run POST /insights/analyze first.")
+        raise HTTPException(
+            status_code=404,
+            detail="Insight not found. Run POST /insights/analyze first.",
+        )
 
     return QualityScoreResponse(
         property_id=property_id,
@@ -204,6 +186,9 @@ async def get_score(
 
 @router.get(
     "/insights/seo/{site_id}/{property_id}",
+    dependencies=[
+        Depends(tenant_limit("/insights/seo/{site_id}/{property_id}", "30/minute"))
+    ],
     response_model=SEOAnalysisResponse,
 )
 async def get_seo(
@@ -214,12 +199,16 @@ async def get_seo(
 ) -> SEOAnalysisResponse:
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(service._pb, site_id)
     validate_id(property_id, "property_id")
+    await enforce_property_site(service._pb, site_id, property_id, ctx.token)
 
     result = await service.get_seo(site_id, property_id)
     if not result:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Insight not found. Run POST /insights/analyze first.")
+        raise HTTPException(
+            status_code=404,
+            detail="Insight not found. Run POST /insights/analyze first.",
+        )
 
     return SEOAnalysisResponse(
         property_id=property_id,
@@ -234,18 +223,24 @@ async def get_seo(
 
 @router.get(
     "/insights/recommendations/{site_id}",
+    dependencies=[
+        Depends(tenant_limit("/insights/recommendations/{site_id}", "30/minute"))
+    ],
     response_model=RecommendationsResponse,
 )
 async def get_recommendations(
     site_id: str,
-    type: str = Query("all"),
-    priority: str | None = Query(None),
+    type: str = Query(
+        "all", pattern="^(all|quality_score|seo_analysis|content_optimization)$"
+    ),
+    priority: str | None = Query(None, pattern="^(critical|warning|info)$"),
     limit: int = Query(50, ge=1, le=200),
     ctx: TenantContext = Depends(get_tenant_context),
     service: InsightService = Depends(_get_insight_service),
 ) -> RecommendationsResponse:
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(service._pb, site_id)
 
     recs = await service.get_recommendations(site_id, insight_type=type)
 
@@ -273,6 +268,7 @@ async def get_recommendations(
 
 @router.get(
     "/insights/summary/{site_id}",
+    dependencies=[Depends(tenant_limit("/insights/summary/{site_id}", "30/minute"))],
     response_model=SiteSummaryResponse,
 )
 async def get_site_summary(
@@ -282,10 +278,10 @@ async def get_site_summary(
 ) -> SiteSummaryResponse:
     enforce_permission(ctx.auth, Permission.INSIGHTS_ACCESS)
     validate_id(site_id, "site_id")
+    await ctx.enforce_site(service._pb, site_id)
 
     result = await service.get_site_summary(site_id)
     if not result:
-        from fastapi import HTTPException
         raise HTTPException(status_code=503, detail="AI summary unavailable")
 
     return SiteSummaryResponse(**result)
@@ -293,6 +289,7 @@ async def get_site_summary(
 
 @router.get(
     "/insights/health",
+    dependencies=[Depends(tenant_limit("/insights/health", "30/minute"))],
     response_model=LLMHealthResponse,
 )
 async def get_llm_health(

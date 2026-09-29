@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.infrastructure.validation.field_validator import (
     validate_fields,
     validate_groups,
@@ -36,12 +37,14 @@ class PropertyService:
         if not slug:
             return
         filter_parts = [
-            f'site_id="{site_id}"',
-            f'slug="{slug}"',
+            f'site_id="{sanitize_filter_value(site_id)}"',
+            f'slug="{sanitize_filter_value(slug)}"',
             SOFT_DELETE_FILTER,
         ]
         if exclude_property_id:
-            filter_parts.append(f'property_id!="{exclude_property_id}"')
+            filter_parts.append(
+                f'property_id!="{sanitize_filter_value(exclude_property_id)}"'
+            )
         filter_expr = " && ".join(filter_parts)
         result = await pb.list_records(
             collection=COLLECTION,
@@ -84,7 +87,7 @@ class PropertyService:
                 for entry in group.get("entries", []):
                     child_id = entry.get("child_id")
                     if child_id:
-                        filter_expr = f'property_id="{child_id}" && site_id="{site_id}" && {SOFT_DELETE_FILTER}'
+                        filter_expr = f'property_id="{sanitize_filter_value(child_id)}" && site_id="{sanitize_filter_value(site_id)}" && {SOFT_DELETE_FILTER}'
                         result = await pb.list_records(
                             collection=COLLECTION,
                             token=token,
@@ -208,7 +211,7 @@ class PropertyService:
                 pb, token, site_id, updates["slug"], exclude_property_id=property_id
             )
 
-        if record.get("type") == CATEGORY_TYPE and "groups" in updates:
+        if {**record, **updates}.get("type") == CATEGORY_TYPE:
             site_id = record.get("site_id")
             await self._validate_category(pb, token, site_id, {**record, **updates})
 

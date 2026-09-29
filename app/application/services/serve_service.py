@@ -1,14 +1,6 @@
 import re
 
-from app.application.services.site_deployer import (
-    deploy_site,
-    remove_dns_for_domain,
-    remove_domain_from_pages,
-    sanitize_project_name,
-)
-from app.config import get_settings
-from app.infrastructure.logging import get_logger
-from app.interface.dto.serve import (
+from app.application.serve_models import (
     PipelineBuild,
     PipelineDomain,
     PipelineResponse,
@@ -17,6 +9,15 @@ from app.interface.dto.serve import (
     SiteServeResponse,
     SiteStopResponse,
 )
+from app.application.services.site_deployer import (
+    deploy_site,
+    remove_dns_for_domain,
+    remove_domain_from_pages,
+    sanitize_project_name,
+)
+from app.config import get_settings
+from app.infrastructure.logging import get_logger
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
 logger = get_logger("serve_service")
 
@@ -107,7 +108,7 @@ async def serve(*, pb, cf, storage, site_record, token, user_id) -> SiteServeRes
     if domain_rec_id:
         linked = await pb.find_one_by_filter(
             collection="domains",
-            filter_expr=f'id="{domain_rec_id}"',
+            filter_expr=f'id="{sanitize_filter_value(domain_rec_id)}"',
             token=token,
         )
         if linked.get("status") != "verified":
@@ -119,7 +120,7 @@ async def serve(*, pb, cf, storage, site_record, token, user_id) -> SiteServeRes
     builds = await pb.list_records(
         collection="builds",
         token=token,
-        filter=f'site_id="{site_id}"&&status="completed"',
+        filter=f'site_id="{sanitize_filter_value(site_id)}"&&status="completed"',
         sort="-created_at",
         page=1,
         per_page=1,
@@ -130,7 +131,7 @@ async def serve(*, pb, cf, storage, site_record, token, user_id) -> SiteServeRes
 
     fresh = await pb.find_one_by_filter(
         collection=SITES_COLLECTION,
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=token,
     )
     if normalize_serve_status(fresh.get("serve_status")) != "verified":
@@ -238,7 +239,7 @@ async def stop(*, pb, cf, site_record, token, user_id) -> SiteStopResponse:
         try:
             linked = await pb.find_one_by_filter(
                 collection="domains",
-                filter_expr=f'id="{domain_rec_id}"',
+                filter_expr=f'id="{sanitize_filter_value(domain_rec_id)}"',
                 token=token,
             )
             if (
@@ -301,7 +302,7 @@ async def get_pipeline(*, pb, site_record, token) -> PipelineResponse:
     builds = await pb.list_records(
         collection="builds",
         token=token,
-        filter=f'site_id="{site_id}"',
+        filter=f'site_id="{sanitize_filter_value(site_id)}"',
         sort="-created_at",
         page=1,
         per_page=1,
@@ -325,7 +326,7 @@ async def get_pipeline(*, pb, site_record, token) -> PipelineResponse:
     if domain_rec_id:
         d = await pb.find_one_by_filter(
             collection="domains",
-            filter_expr=f'id="{domain_rec_id}"',
+            filter_expr=f'id="{sanitize_filter_value(domain_rec_id)}"',
             token=token,
         )
         domain = PipelineDomain(

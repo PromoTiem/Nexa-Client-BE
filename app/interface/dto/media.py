@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, field_validator
 
 from app.interface.dto.common import (
     BulkDeleteRequest,
@@ -45,6 +47,13 @@ class MediaUpdateRequest(BaseModel):
     is_default: bool | None = None
     original_file_id: str | None = None
     page_id: str | None = None
+
+    @field_validator("name", "is_default")
+    @classmethod
+    def reject_null_fields(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 __all__ = [

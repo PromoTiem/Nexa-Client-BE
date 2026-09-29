@@ -1,10 +1,7 @@
-import secrets
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+from app.application.services.account_service import enforce_account_access
 from app.config import Settings, get_settings
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import _bearer, get_pocketbase_client
@@ -15,10 +12,9 @@ from app.interface.dto.auth import (
     AuthLoginResponse,
     AuthRefreshResponse,
 )
-from app.interface.route_helpers import sanitize_filter_value
+from app.interface.limiter import limiter
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/login", response_model=AuthLoginResponse)
@@ -35,6 +31,7 @@ async def login(
         password=body.password,
         identity_field=body.identity_field,
     )
+    enforce_account_access(data["record"])
     return AuthLoginResponse(token=data["token"], record=data["record"])
 
 
@@ -52,6 +49,7 @@ async def refresh(
         collection=settings.pocketbase_auth_collection,
         token=credentials.credentials,
     )
+    enforce_account_access(data["record"])
     return AuthRefreshResponse(token=data["token"], record=data["record"])
 
 
@@ -63,40 +61,7 @@ async def forgot_password(
     settings: Settings = Depends(get_settings),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> AuthForgotPasswordResponse:
-    # 1. Admin Auth
-    admin_auth = await pb.auth_admin(
-        email=settings.pocketbase_admin_email,
-        password=settings.pocketbase_admin_password,
+    await pb.request_password_reset(
+        settings.pocketbase_auth_collection, str(body.email)
     )
-    admin_token = admin_auth["token"]
-
-    # 2. Find user by email (sanitize to prevent filter injection)
-    sanitized_email = sanitize_filter_value(body.email)
-    users = await pb.collection_list(
-        collection=settings.pocketbase_auth_collection,
-        filter_expr=f'email = "{sanitized_email}"',
-        token=admin_token,
-    )
-    if not users.get("items"):
-        raise HTTPException(status_code=404, detail="User not found")
-
-    user_record = users["items"][0]
-
-    # 3. Generate temp password
-    temp_password = secrets.token_urlsafe(12)
-
-    # 4. Update user
-    await pb.update_record(
-        collection=settings.pocketbase_auth_collection,
-        record_id=user_record["id"],
-        data={
-            "password": temp_password,
-            "passwordConfirm": temp_password,
-            "first_auth": True,
-        },
-        token=admin_token,
-    )
-
-    # TODO: Send temp_password via email instead of returning in response.
-    # Returning it in the body exposes it in access logs, proxies, and monitoring.
-    return AuthForgotPasswordResponse(temporary_password=temp_password)
+    return AuthForgotPasswordResponse()

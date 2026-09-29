@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -16,6 +17,7 @@ from app.infrastructure.llm.prompts import (
 )
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
 logger = get_logger("insight.service")
 
@@ -29,6 +31,52 @@ class InsightService:
     def __init__(self, pb: PocketBaseClient, llm: LLMClient) -> None:
         self._pb = pb
         self._llm = llm
+
+    async def list_batch_properties(
+        self, site_id: str, property_type: str | None
+    ) -> list[dict]:
+        expression = f'site_id="{sanitize_filter_value(site_id)}" && deleted_at=""'
+        if property_type:
+            expression += f' && type="{sanitize_filter_value(property_type)}"'
+        records = []
+        page = 1
+        while True:
+            result = await self._pb.list_records(
+                "properties", filter=expression, page=page, per_page=500, sort="id"
+            )
+            items = result.get("items", [])
+            records.extend(items)
+            if len(items) < 500 or page >= result.get("totalPages", page):
+                return records
+            page += 1
+
+    async def process_batch(
+        self,
+        site_id: str,
+        tenant_id: str,
+        properties: list[dict],
+        insight_type: str,
+        force: bool,
+        job_id: str,
+    ) -> None:
+        async with _BATCH_SLOTS:
+            for prop in properties:
+                try:
+                    await self.analyze_property(
+                        site_id=site_id,
+                        property_id=prop["property_id"],
+                        force=force,
+                        insight_type=insight_type,
+                        tenant_id=tenant_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "batch property analysis failed",
+                        extra={
+                            "job_id": job_id,
+                            "property_id": prop.get("property_id"),
+                        },
+                    )
 
     async def analyze_property(
         self,
@@ -44,7 +92,7 @@ class InsightService:
         # Fetch property
         prop = await self._pb.find_one_by_filter(
             COLLECTION_PROPERTIES,
-            f'property_id="{property_id}" && site_id="{site_id}"',
+            f'property_id="{sanitize_filter_value(property_id)}" && site_id="{sanitize_filter_value(site_id)}" && deleted_at=""',
         )
 
         fields_data = format_product_fields([prop])
@@ -92,10 +140,15 @@ class InsightService:
     async def get_seo(self, site_id: str, property_id: str) -> dict | None:
         return await self._get_cached_insight(site_id, property_id, "seo_analysis")
 
-    async def get_recommendations(self, site_id: str, insight_type: str = "all") -> list[dict]:
-        filter_parts = [f'site_id="{site_id}"', 'property_id!=""']
+    async def get_recommendations(
+        self, site_id: str, insight_type: str = "all"
+    ) -> list[dict]:
+        filter_parts = [
+            f'site_id="{sanitize_filter_value(site_id)}"',
+            'property_id!=""',
+        ]
         if insight_type != "all":
-            filter_parts.append(f'insight_type="{insight_type}"')
+            filter_parts.append(f'insight_type="{sanitize_filter_value(insight_type)}"')
         filter_expr = " && ".join(filter_parts)
 
         result = await self._pb.list_records(
@@ -106,7 +159,9 @@ class InsightService:
         items = result.get("items", [])
 
         # Batch-fetch property names
-        prop_ids = list({item.get("property_id", "") for item in items if item.get("property_id")})
+        prop_ids = list(
+            {item.get("property_id", "") for item in items if item.get("property_id")}
+        )
         name_map = await self._resolve_property_names(site_id, prop_ids)
 
         recommendations = []
@@ -118,41 +173,52 @@ class InsightService:
 
             if item_type == "quality_score":
                 for rec in content.get("recommendations", []):
-                    recommendations.append({
-                        "property_id": prop_id,
-                        "property_name": prop_name,
-                        "insight_type": item_type,
-                        "severity": "warning",
-                        "message": rec,
-                        "suggestion": "",
-                    })
+                    recommendations.append(
+                        {
+                            "property_id": prop_id,
+                            "property_name": prop_name,
+                            "insight_type": item_type,
+                            "severity": "warning",
+                            "message": rec,
+                            "suggestion": "",
+                        }
+                    )
             elif item_type == "seo_analysis":
                 for issue in content.get("issues", []):
-                    recommendations.append({
-                        "property_id": prop_id,
-                        "property_name": prop_name,
-                        "insight_type": item_type,
-                        "severity": issue.get("severity", "info"),
-                        "field": issue.get("field"),
-                        "message": issue.get("message", ""),
-                        "suggestion": issue.get("suggestion", ""),
-                    })
+                    recommendations.append(
+                        {
+                            "property_id": prop_id,
+                            "property_name": prop_name,
+                            "insight_type": item_type,
+                            "severity": issue.get("severity", "info"),
+                            "field": issue.get("field"),
+                            "message": issue.get("message", ""),
+                            "suggestion": issue.get("suggestion", ""),
+                        }
+                    )
 
         return recommendations
 
-    async def _resolve_property_names(self, site_id: str, property_ids: list[str]) -> dict[str, str]:
+    async def _resolve_property_names(
+        self, site_id: str, property_ids: list[str]
+    ) -> dict[str, str]:
         """Batch-fetch property names for a list of property_ids."""
         if not property_ids:
             return {}
-        or_filter = " || ".join(f'property_id="{pid}"' for pid in property_ids)
-        filter_expr = f'site_id="{site_id}" && ({or_filter}) && deleted_at=""'
+        or_filter = " || ".join(
+            f'property_id="{sanitize_filter_value(pid)}"' for pid in property_ids
+        )
+        filter_expr = f'site_id="{sanitize_filter_value(site_id)}" && ({or_filter}) && deleted_at=""'
         try:
             result = await self._pb.list_records(
                 COLLECTION_PROPERTIES,
                 filter=filter_expr,
                 per_page=500,
             )
-            return {item["property_id"]: item.get("name", item["property_id"]) for item in result.get("items", [])}
+            return {
+                item["property_id"]: item.get("name", item["property_id"])
+                for item in result.get("items", [])
+            }
         except Exception:
             return {pid: pid for pid in property_ids}
 
@@ -160,7 +226,7 @@ class InsightService:
         # Fetch all properties for the site
         props_result = await self._pb.list_records(
             COLLECTION_PROPERTIES,
-            filter=f'site_id="{site_id}"',
+            filter=f'site_id="{sanitize_filter_value(site_id)}"',
             per_page=500,
         )
         properties = props_result.get("items", [])
@@ -168,18 +234,26 @@ class InsightService:
         total = len(properties)
         published = sum(1 for p in properties if p.get("status") == "published")
         with_desc = sum(
-            1 for p in properties
-            if any(f.get("key") == "description" and f.get("value") for f in (p.get("fields") or []))
+            1
+            for p in properties
+            if any(
+                f.get("key") == "description" and f.get("value")
+                for f in (p.get("fields") or [])
+            )
         )
         with_images = sum(
-            1 for p in properties
-            if any(f.get("key") in ("images", "image") and f.get("value") for f in (p.get("fields") or []))
+            1
+            for p in properties
+            if any(
+                f.get("key") in ("images", "image") and f.get("value")
+                for f in (p.get("fields") or [])
+            )
         )
 
         # Count critical issues and compute average quality score
         insights_result = await self._pb.list_records(
             COLLECTION_INSIGHTS,
-            filter=f'site_id="{site_id}" && insight_type="seo_analysis"',
+            filter=f'site_id="{sanitize_filter_value(site_id)}" && insight_type="seo_analysis"',
             per_page=500,
         )
         critical_issues = 0
@@ -194,7 +268,7 @@ class InsightService:
         # Compute average quality score from cached insights
         quality_result = await self._pb.list_records(
             COLLECTION_INSIGHTS,
-            filter=f'site_id="{site_id}" && insight_type="quality_score"',
+            filter=f'site_id="{sanitize_filter_value(site_id)}" && insight_type="quality_score"',
             per_page=500,
         )
         quality_items = quality_result.get("items", [])
@@ -213,7 +287,9 @@ class InsightService:
         )
 
         try:
-            result = await self._llm.structured_output(SITE_SUMMARY_SYSTEM, summary_input)
+            result = await self._llm.structured_output(
+                SITE_SUMMARY_SYSTEM, summary_input
+            )
         except Exception as e:
             logger.error("site summary LLM failed", extra={"error": str(e)})
             result = {
@@ -249,7 +325,9 @@ class InsightService:
             "last_check": datetime.now(UTC).isoformat(),
         }
 
-    async def _generate_insight(self, insight_type: str, fields: dict, prop: dict) -> dict:
+    async def _generate_insight(
+        self, insight_type: str, fields: dict, prop: dict
+    ) -> dict:
         if insight_type == "quality_score":
             user_msg = QUALITY_SCORING_USER.format(**fields)
             return await self._llm.structured_output(QUALITY_SCORING_SYSTEM, user_msg)
@@ -260,15 +338,19 @@ class InsightService:
 
         if insight_type == "content_optimization":
             user_msg = PRODUCT_OPTIMIZATION_USER.format(**fields)
-            return await self._llm.structured_output(PRODUCT_OPTIMIZATION_SYSTEM, user_msg)
+            return await self._llm.structured_output(
+                PRODUCT_OPTIMIZATION_SYSTEM, user_msg
+            )
 
         return {}
 
-    async def _get_cached_insight(self, site_id: str, property_id: str, insight_type: str) -> dict | None:
+    async def _get_cached_insight(
+        self, site_id: str, property_id: str, insight_type: str
+    ) -> dict | None:
         try:
             result = await self._pb.list_records(
                 COLLECTION_INSIGHTS,
-                filter=f'site_id="{site_id}" && property_id="{property_id}" && insight_type="{insight_type}"',
+                filter=f'site_id="{sanitize_filter_value(site_id)}" && property_id="{sanitize_filter_value(property_id)}" && insight_type="{sanitize_filter_value(insight_type)}"',
                 per_page=1,
             )
             items = result.get("items", [])
@@ -297,14 +379,18 @@ class InsightService:
             # Check if exists
             existing = await self._pb.list_records(
                 COLLECTION_INSIGHTS,
-                filter=f'site_id="{site_id}" && property_id="{property_id}" && insight_type="{insight_type}"',
+                filter=f'site_id="{sanitize_filter_value(site_id)}" && property_id="{sanitize_filter_value(property_id)}" && insight_type="{sanitize_filter_value(insight_type)}"',
                 per_page=1,
             )
             items = existing.get("items", [])
 
             now = datetime.now(UTC)
             ttl_hours = self._llm._settings.cache_ttl_hours
-            expires_at = (now + timedelta(hours=ttl_hours)).isoformat() if ttl_hours > 0 else None
+            expires_at = (
+                (now + timedelta(hours=ttl_hours)).isoformat()
+                if ttl_hours > 0
+                else None
+            )
 
             data = {
                 "site_id": site_id,
@@ -326,3 +412,6 @@ class InsightService:
                 await self._pb.create_record(COLLECTION_INSIGHTS, data)
         except Exception as e:
             logger.warning("insight cache failed", extra={"error": str(e)})
+
+
+_BATCH_SLOTS = asyncio.Semaphore(2)

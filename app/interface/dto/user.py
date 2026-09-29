@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 from app.interface.dto.common import PaginatedResponse
 from app.interface.dto.tenant import TenantResponse
@@ -24,6 +24,13 @@ class UserUpdateRequest(BaseModel):
     role: UserRole | None = None
     status: UserStatus | None = None
     metadata: dict[str, Any] | None = None
+
+    @field_validator("role", "status")
+    @classmethod
+    def reject_null(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class UserProfileUpdateRequest(BaseModel):

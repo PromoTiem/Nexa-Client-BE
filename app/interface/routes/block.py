@@ -11,7 +11,12 @@ from app.interface.dependencies import (
 )
 from app.interface.dto.block import BlockListResponse, BlockResponse
 from app.interface.rbac import Permission, enforce_permission
-from app.interface.route_helpers import combine_filter, tenant_filter, validate_id
+from app.interface.route_helpers import (
+    combine_filter,
+    tenant_filter,
+    validate_id,
+    validate_sort,
+)
 
 COLLECTION = "blocks"
 
@@ -25,7 +30,7 @@ def _record_to_response(record: dict[str, Any]) -> BlockResponse:
         block_id=record["block_id"],
         name=record.get("name", ""),
         type=record.get("type", ""),
-        order_index=record.get("order_index") or None,
+        order_index=record.get("order_index"),
         props=record.get("props") or None,
         style=record.get("style") or None,
         created_at=record.get("created_at"),
@@ -44,6 +49,7 @@ async def list_blocks(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BlockListResponse:
     enforce_permission(ctx.auth, Permission.BLOCKS_LIST)
+    sort = validate_sort(sort, allowed_fields=["created_at", "updated_at", "name"])
     tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
     result = await pb.list_records(
         collection=COLLECTION,

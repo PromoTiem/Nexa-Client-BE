@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -68,7 +68,9 @@ class SiteSummaryResponse(BaseModel):
 
 
 class BatchAnalysisRequest(BaseModel):
-    type: str = "all"  # all, quality_score, seo_analysis, content_optimization
+    type: Literal["all", "quality_score", "seo_analysis", "content_optimization"] = (
+        "all"  # all, quality_score, seo_analysis, content_optimization
+    )
     force: bool = False
     property_type: str | None = None
 
@@ -88,7 +90,9 @@ class BatchAnalysisStatusResponse(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     force: bool = False
-    type: str = "all"  # all, quality_score, seo_analysis, content_optimization
+    type: Literal["all", "quality_score", "seo_analysis", "content_optimization"] = (
+        "all"  # all, quality_score, seo_analysis, content_optimization
+    )
 
 
 # --- Recommendations ---

@@ -4,6 +4,7 @@ from app.infrastructure.analytics.aggregator import AnalyticsAggregator
 from app.infrastructure.analytics.collector import AnalyticsCollector
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
 logger = get_logger("analytics.service")
 
@@ -65,14 +66,14 @@ class AnalyticsService:
     async def flush(self) -> dict:
         return await self._collector.flush()
 
-    async def aggregate_daily(self, site_id: str, date: str | None = None) -> dict | None:
+    async def aggregate_daily(
+        self, site_id: str, date: str | None = None
+    ) -> dict | None:
         if date is None:
             date = datetime.now(UTC).strftime("%Y-%m-%d")
         return await self._aggregator.aggregate_daily(site_id, date)
 
-    async def aggregate_date_range(
-        self, site_id: str, start: str, end: str
-    ) -> dict:
+    async def aggregate_date_range(self, site_id: str, start: str, end: str) -> dict:
         """Aggregate all dates in a range. Returns summary of results."""
         start_dt = datetime.strptime(start, "%Y-%m-%d")
         end_dt = datetime.strptime(end, "%Y-%m-%d")
@@ -114,14 +115,23 @@ class AnalyticsService:
         property_id: str | None = None,
     ) -> dict:
         """Sum daily aggregates across a date range into KPI totals."""
-        aggs = await self._query_aggregates(site_id, start, end, property_id=property_id)
+        aggs = await self._query_aggregates(
+            site_id, start, end, property_id=property_id
+        )
         if not aggs:
             return {
-                "total_views": 0, "unique_visitors": 0, "product_views": 0,
+                "total_views": 0,
+                "unique_visitors": 0,
+                "product_views": 0,
                 "product_impressions": 0,
-                "bookings": 0, "orders": 0, "revenue": 0.0,
-                "conversion_rate": 0.0, "avg_order_value": 0.0, "search_count": 0,
-                "avg_session_duration": None, "pages_per_session": None,
+                "bookings": 0,
+                "orders": 0,
+                "revenue": 0.0,
+                "conversion_rate": 0.0,
+                "avg_order_value": 0.0,
+                "search_count": 0,
+                "avg_session_duration": None,
+                "pages_per_session": None,
             }
 
         total_views = sum(a.get("total_views", 0) or 0 for a in aggs)
@@ -134,9 +144,19 @@ class AnalyticsService:
         search_count = sum(a.get("search_count", 0) or 0 for a in aggs)
 
         # Average session duration and pages per session across the period
-        durations = [a.get("avg_session_duration") for a in aggs if a.get("avg_session_duration") is not None]
-        pps = [a.get("pages_per_session") for a in aggs if a.get("pages_per_session") is not None]
-        avg_session_duration = round(sum(durations) / len(durations), 2) if durations else None
+        durations = [
+            a.get("avg_session_duration")
+            for a in aggs
+            if a.get("avg_session_duration") is not None
+        ]
+        pps = [
+            a.get("pages_per_session")
+            for a in aggs
+            if a.get("pages_per_session") is not None
+        ]
+        avg_session_duration = (
+            round(sum(durations) / len(durations), 2) if durations else None
+        )
         pages_per_session = round(sum(pps) / len(pps), 2) if pps else None
 
         conversion_rate = (orders / total_views * 100) if total_views else 0.0
@@ -161,19 +181,22 @@ class AnalyticsService:
         self,
         site_id: str,
         period: str,
+        property_id: str | None = None,
     ) -> dict[str, float]:
         """Compute percentage change vs previous period for each KPI."""
         start, end = self._date_range(period)
         prev_start, prev_end = self._previous_period_range(start, end)
 
-        current = await self.get_kpis(site_id, start, end)
-        previous = await self.get_kpis(site_id, prev_start, prev_end)
+        current = await self.get_kpis(site_id, start, end, property_id=property_id)
+        previous = await self.get_kpis(
+            site_id, prev_start, prev_end, property_id=property_id
+        )
 
         changes: dict[str, float] = {}
         for key in current:
             curr_val = current[key]
             prev_val = previous[key]
-            if prev_val and prev_val != 0:
+            if curr_val is not None and prev_val:
                 changes[key] = round((curr_val - prev_val) / prev_val * 100, 1)
             else:
                 changes[key] = 0.0
@@ -187,17 +210,32 @@ class AnalyticsService:
         end: str,
         *,
         property_id: str | None = None,
+        period: str = "daily",
     ) -> list[dict]:
         """Return time-series data for a single metric from daily aggregates."""
-        aggs = await self._query_aggregates(site_id, start, end, property_id=property_id)
+        aggs = await self._query_aggregates(
+            site_id, start, end, property_id=property_id
+        )
         field = _METRIC_TO_FIELD.get(metric)
         if not field:
             return []
 
-        data = []
-        for a in sorted(aggs, key=lambda x: x.get("date", "")):
-            data.append({"date": a["date"], "value": a.get(field, 0) or 0})
-        return data
+        buckets: dict[str, list[float]] = {}
+        for aggregate in aggs:
+            day = datetime.strptime(aggregate["date"], "%Y-%m-%d").date()
+            if period == "weekly":
+                day -= timedelta(days=day.weekday())
+            elif period == "monthly":
+                day = day.replace(day=1)
+            buckets.setdefault(day.isoformat(), []).append(aggregate.get(field, 0) or 0)
+        averaged = field in {"avg_session_duration", "pages_per_session"}
+        return [
+            {
+                "date": day,
+                "value": sum(values) / len(values) if averaged else sum(values),
+            }
+            for day, values in sorted(buckets.items())
+        ]
 
     async def get_breakdown(
         self,
@@ -207,17 +245,25 @@ class AnalyticsService:
         end: str,
     ) -> list[dict]:
         """Return per-property breakdown (for pie/bar charts)."""
-        aggs = await self._query_aggregates(site_id, start, end, include_properties=True)
+        aggs = await self._query_aggregates(
+            site_id, start, end, include_properties=True
+        )
 
         # Handle nested dict breakdowns (traffic_sources, device_breakdown)
         if metric == "traffic_sources":
-            return self._breakdown_nested_dict(aggs, "traffic_sources")
+            return self._breakdown_nested_dict(
+                [a for a in aggs if not a.get("property_id")], "traffic_sources"
+            )
         if metric == "device_breakdown":
-            return self._breakdown_nested_dict(aggs, "device_types")
+            return self._breakdown_nested_dict(
+                [a for a in aggs if not a.get("property_id")], "device_types"
+            )
 
         # Handle per-property breakdowns
         if metric in ("product_breakdown", "service_breakdown"):
-            return self._breakdown_by_property(aggs, "total_views")
+            return self._breakdown_by_property(
+                aggs, "add_to_carts" if metric == "service_breakdown" else "total_views"
+            )
 
         # Group by property_id
         by_prop: dict[str, int | float] = {}
@@ -271,9 +317,12 @@ class AnalyticsService:
         end: str,
         *,
         limit: int = 10,
+        property_type: str | None = None,
     ) -> list[dict]:
         """Return top properties ranked by a metric."""
-        aggs = await self._query_aggregates(site_id, start, end, include_properties=True)
+        aggs = await self._query_aggregates(
+            site_id, start, end, include_properties=True
+        )
 
         # Aggregate per property
         by_prop: dict[str, dict] = {}
@@ -285,17 +334,59 @@ class AnalyticsService:
                 by_prop[prop_id] = {
                     "property_id": prop_id,
                     "views": 0,
+                    "unique_visitors": 0,
+                    "orders": 0,
                     "bookings": 0,
                     "revenue": 0.0,
                 }
+            by_prop[prop_id]["unique_visitors"] += a.get("unique_visitors", 0) or 0
+            by_prop[prop_id]["orders"] += a.get("purchases", 0) or 0
             by_prop[prop_id]["views"] += a.get("total_views", 0) or 0
             by_prop[prop_id]["bookings"] += a.get("add_to_carts", 0) or 0
             by_prop[prop_id]["revenue"] += a.get("revenue", 0) or 0
 
+        properties = await self._list_properties(site_id, property_type)
+        catalog = {p["property_id"]: p for p in properties}
+        for prop_id in list(by_prop):
+            if prop_id not in catalog:
+                del by_prop[prop_id]
+                continue
+            item = by_prop[prop_id]
+            item["type"] = catalog[prop_id].get("type")
+            item["name"] = catalog[prop_id].get("name", prop_id)
+            item["conversion_rate"] = (
+                round(item["orders"] / item["views"] * 100, 2) if item["views"] else 0.0
+            )
+
         # Sort by requested metric
         sort_key = _TOP_SORT_KEY.get(metric, "views")
-        ranked = sorted(by_prop.values(), key=lambda x: x.get(sort_key, 0), reverse=True)
+        ranked = sorted(
+            by_prop.values(), key=lambda x: x.get(sort_key, 0), reverse=True
+        )
         return ranked[:limit]
+
+    async def _list_properties(
+        self, site_id: str, property_type: str | None
+    ) -> list[dict]:
+        expression = f'site_id="{sanitize_filter_value(site_id)}" && deleted_at=""'
+        if property_type:
+            expression += f' && type="{sanitize_filter_value(property_type)}"'
+        items = []
+        page = 1
+        while True:
+            result = await self._pb.list_records(
+                "properties",
+                token=self._token,
+                filter=expression,
+                page=page,
+                per_page=500,
+                sort="id",
+            )
+            batch = result.get("items", [])
+            items.extend(batch)
+            if len(batch) < 500 or page >= result.get("totalPages", page):
+                return items
+            page += 1
 
     # --- Date Utilities ---
 
@@ -335,12 +426,12 @@ class AnalyticsService:
         include_properties: bool = False,
     ) -> list[dict]:
         """Query analytics_daily_agg for a site + date range, paginating all results."""
-        parts = [f'site_id="{site_id}"']
+        parts = [f'site_id="{sanitize_filter_value(site_id)}"']
         parts.append(f'date>="{start}"')
         parts.append(f'date<="{end}"')
 
         if property_id:
-            parts.append(f'property_id="{property_id}"')
+            parts.append(f'property_id="{sanitize_filter_value(property_id)}"')
         elif not include_properties:
             # Site-level aggregates only (agg_id ends with _site)
             parts.append('property_id=""')
@@ -349,7 +440,11 @@ class AnalyticsService:
 
         logger.debug(
             "querying aggregates",
-            extra={"site_id": site_id, "filter": filter_expr, "has_token": self._token is not None},
+            extra={
+                "site_id": site_id,
+                "filter": filter_expr,
+                "has_token": self._token is not None,
+            },
         )
 
         all_items: list[dict] = []

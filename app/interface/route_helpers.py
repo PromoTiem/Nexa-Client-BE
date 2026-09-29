@@ -4,7 +4,11 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.application.access import enforce_site_access
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import (
+    sanitize_filter_value as sanitize_filter_value,
+)
 from app.interface.auth_models import AuthContext
 
 # ----- ID validation -------------------------------------------------- #
@@ -13,19 +17,11 @@ ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 
 def validate_id(value: str, name: str = "id") -> None:
-    if not ID_RE.match(value):
+    if not ID_RE.fullmatch(value):
         raise HTTPException(status_code=400, detail=f"Invalid {name} format")
 
 
 # ----- filter sanitization -------------------------------------------------- #
-
-_FILTER_UNSAFE_RE = re.compile(r'["\\]')
-
-
-def sanitize_filter_value(value: str) -> str:
-    """Escape double quotes and backslashes in filter values to prevent injection."""
-    return _FILTER_UNSAFE_RE.sub(lambda m: "\\" + m.group(0), value)
-
 
 # ----- sort validation -------------------------------------------------- #
 
@@ -96,24 +92,7 @@ async def ensure_site_tenant(
     site_id: str,
     auth: AuthContext,
 ) -> None:
-    """Verify that the site with the given site_id belongs to the caller's tenant.
-
-    Passes silently for admin users (no tenant_id on auth record).
-    Raises 404 if the site exists but belongs to a different tenant.
-    """
-    tenant = auth_tenant(auth)
-    if not tenant:
-        return
-    site = await pb.find_one_by_filter(
-        collection="sites",
-        filter_expr=f'site_id="{site_id}"',
-        token=auth.token,
-    )
-    site_tenant_public_id = await record_id_to_public_id(
-        pb, "tenants", "tenant_id", site.get("tenant_id"), auth.token
-    )
-    if site_tenant_public_id != tenant:
-        raise HTTPException(status_code=404, detail="Site not found")
+    await enforce_site_access(pb, site_id, auth)
 
 
 async def ensure_file_tenant(
@@ -131,7 +110,7 @@ async def ensure_file_tenant(
         return
     site_id = record.get("site_id")
     if not site_id:
-        return
+        raise HTTPException(status_code=404, detail="File not found")
     await ensure_site_tenant(pb, site_id, auth)
 
 
@@ -165,7 +144,7 @@ async def tenant_filter(
     view, so a 403 is raised instead of returning an unrestricted filter.
     """
     record_id = await tenant_record_id(pb, token, tenant_id)
-    return f'tenant_id="{record_id}"'
+    return f'tenant_id="{sanitize_filter_value(record_id)}"'
 
 
 def combine_filter(base: str, tenant_clause: str | None) -> str:
@@ -188,7 +167,7 @@ async def public_id_to_record_id(
 ) -> str:
     record = await pb.find_one_by_filter(
         collection=collection,
-        filter_expr=f'{public_field}="{public_id}"',
+        filter_expr=f'{public_field}="{sanitize_filter_value(public_id)}"',
         token=token,
     )
     return record["id"]
@@ -206,10 +185,12 @@ async def record_id_to_public_id(
     try:
         record = await pb.find_one_by_filter(
             collection=collection,
-            filter_expr=f'id="{record_id}"',
+            filter_expr=f'id="{sanitize_filter_value(record_id)}"',
             token=token,
         )
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
         return None
     return record.get(public_field)
 
@@ -236,3 +217,38 @@ async def map_site_record(
             pb, collection, public_field, record.get(field), token
         )
     return mapped
+
+
+async def enforce_property_site(
+    pb: PocketBaseClient, site_id: str, property_id: str, token: str
+) -> None:
+    validate_id(property_id, "property_id")
+    await pb.find_one_by_filter(
+        collection="properties",
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}" && property_id="{sanitize_filter_value(property_id)}" && deleted_at=""',
+        token=token,
+    )
+
+
+async def tenant_resource_id(
+    pb: PocketBaseClient,
+    collection: str,
+    field: str,
+    value: str,
+    token: str,
+    tenant_id: str,
+) -> str:
+    validate_id(value, field)
+    clause = await tenant_filter(pb, token, tenant_id)
+    record = await pb.find_one_by_filter(
+        collection=collection,
+        filter_expr=combine_filter(f'{field}="{sanitize_filter_value(value)}"', clause),
+        token=token,
+    )
+    return record["id"]
+
+
+def resolve_page_size(limit: int | None, per_page: int | None) -> int:
+    if limit is not None and per_page is not None and limit != per_page:
+        raise HTTPException(status_code=422, detail="limit and per_page must agree")
+    return per_page if per_page is not None else (limit if limit is not None else 20)

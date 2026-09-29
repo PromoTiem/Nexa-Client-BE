@@ -1,6 +1,7 @@
-from typing import Any, Literal
+from datetime import date
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 AnalyticsEventType = Literal[
     "page_view",
@@ -143,8 +144,15 @@ class ProductAnalyticsResponse(BaseModel):
 
 
 class AggregateRequest(BaseModel):
-    start_date: str  # YYYY-MM-DD
-    end_date: str  # YYYY-MM-DD
+    start_date: date
+    end_date: date
+
+    @model_validator(mode="after")
+    def valid_range(self) -> Self:
+        days = (self.end_date - self.start_date).days
+        if days < 0 or days >= 366:
+            raise ValueError("date range must contain between 1 and 366 days")
+        return self
 
 
 class AggregateResponse(BaseModel):

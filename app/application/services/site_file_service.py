@@ -1,15 +1,14 @@
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
 
+from app.application.access import AuthContext, enforce_site_access
 from app.application.services.bucket_resolver import ensure_site_bucket
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.infrastructure.storage.client import StorageClient
-
-if TYPE_CHECKING:
-    from app.interface.auth_models import AuthContext
 
 
 class SiteFileService:
@@ -59,7 +58,7 @@ class SiteFileService:
     ) -> dict[str, Any]:
         return await pb.find_one_by_filter(
             collection=self.COLLECTION,
-            filter_expr=f'file_id="{file_id}"',
+            filter_expr=f'file_id="{sanitize_filter_value(file_id)}"',
             token=token,
         )
 
@@ -72,9 +71,9 @@ class SiteFileService:
         pb: PocketBaseClient,
         token: str,
     ) -> dict[str, Any]:
-        filter_expr = f'site_id="{site_id}"'
+        filter_expr = f'site_id="{sanitize_filter_value(site_id)}"'
         if page_id:
-            filter_expr += f' && page_id="{page_id}"'
+            filter_expr += f' && page_id="{sanitize_filter_value(page_id)}"'
         return await pb.list_records(
             collection=self.COLLECTION,
             token=token,
@@ -115,7 +114,7 @@ class SiteFileService:
         # 1. site must exist
         await pb.find_one_by_filter(
             collection="sites",
-            filter_expr=f'site_id="{site_id}"',
+            filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
             token=token,
         )
         # 2. MIME allowlist
@@ -277,10 +276,8 @@ class SiteFileService:
         user_id: str | None = None,
         auth: Optional["AuthContext"] = None,
     ) -> list[dict[str, str]]:
-        from app.interface.route_helpers import auth_tenant
-
         results: list[dict[str, str]] = []
-        tenant = auth_tenant(auth) if auth else None
+        tenant = auth.record.get("tenant_id") if auth else None
         for file_id in file_ids:
             try:
                 record = await self.get_record(file_id, pb, token)
@@ -289,22 +286,21 @@ class SiteFileService:
                 results.append({"file_id": file_id, "status": status})
                 continue
 
-            # Per-file tenant isolation: verify the file's site belongs to the caller.
-            if tenant:
-                site_id = record.get("site_id")
-                if site_id:
-                    try:
-                        site = await pb.find_one_by_filter(
-                            collection="sites",
-                            filter_expr=f'site_id="{site_id}"',
-                            token=token,
-                        )
-                        if site.get("tenant_id") != tenant:
-                            results.append({"file_id": file_id, "status": "not_found"})
-                            continue
-                    except HTTPException:
-                        results.append({"file_id": file_id, "status": "not_found"})
-                        continue
+            if auth:
+                try:
+                    if not tenant or not record.get("site_id"):
+                        raise HTTPException(status_code=404, detail="File not found")
+                    await enforce_site_access(pb, record["site_id"], auth)
+                except HTTPException as exc:
+                    results.append(
+                        {
+                            "file_id": file_id,
+                            "status": "not_found"
+                            if exc.status_code == 404
+                            else "error",
+                        }
+                    )
+                    continue
 
             try:
                 await self._storage.delete_object(record["bucket"], record["path"])

@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class AuthLoginRequest(BaseModel):
@@ -10,11 +10,11 @@ class AuthLoginRequest(BaseModel):
 
 
 class AuthForgotPasswordRequest(BaseModel):
-    email: str
+    email: EmailStr
 
 
 class AuthForgotPasswordResponse(BaseModel):
-    temporary_password: str
+    message: str = "If the account exists, password reset instructions will be emailed."
 
 
 class AuthResponse(BaseModel):

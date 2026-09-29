@@ -76,7 +76,7 @@ async def get_my_profile(
         try:
             tenant_record = await pb.find_one_by_filter(
                 collection="tenants",
-                filter_expr=f'tenant_id="{ctx.tenant_id}"',
+                filter_expr=f'tenant_id="{sanitize_filter_value(ctx.tenant_id)}"',
                 token=ctx.token,
             )
             tenant = TenantResponse(
@@ -146,6 +146,7 @@ async def change_my_password(
         data={
             "password": body.password,
             "passwordConfirm": body.password_confirm,
+            "oldPassword": body.old_password,
             "first_auth": False,
         },
         token=ctx.token,
@@ -172,7 +173,7 @@ async def list_users(
     enforce_permission(ctx.auth, Permission.USERS_LIST)
     tenant = ctx.tenant_id
 
-    filter_parts = [f'tenant_id="{tenant}"']
+    filter_parts = [f'tenant_id="{sanitize_filter_value(tenant)}"']
     if status:
         filter_parts.append(f'status="{sanitize_filter_value(status)}"')
     if role:
@@ -299,6 +300,10 @@ async def update_user(
         token=ctx.token,
     )
     ctx.enforce_owns(record)
+    check_role_permission(
+        UserRole(ctx.auth.record.get("role", "guest")),
+        UserRole(record.get("role", "guest")),
+    )
 
     updated = await pb.update_record(
         collection=COLLECTION,
@@ -324,6 +329,10 @@ async def delete_user(
         token=ctx.token,
     )
     ctx.enforce_owns(record)
+    check_role_permission(
+        UserRole(ctx.auth.record.get("role", "guest")),
+        UserRole(record.get("role", "guest")),
+    )
 
     await pb.update_record(
         collection=COLLECTION,

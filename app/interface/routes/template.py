@@ -37,7 +37,7 @@ def _record_to_response(record: dict[str, Any]) -> TemplateResponse:
         description=record.get("description") or None,
         page_ids=record.get("page_ids") or None,
         version=record.get("version") or None,
-        is_valid=record.get("is_valid") or None,
+        is_valid=record.get("is_valid"),
         default=record.get("default") or False,
         created_at=record.get("created_at"),
         updated_at=record.get("updated_at"),
@@ -57,7 +57,7 @@ async def _resolve_batch(
 ) -> list[dict[str, Any]]:
     if not ids:
         return []
-    filter_expr = " || ".join(f'{id_field}="{id}"' for id in ids)
+    filter_expr = " || ".join(f'{id_field}="{sanitize_filter_value(id)}"' for id in ids)
     if tenant_clause:
         filter_expr = f"({filter_expr}) && {tenant_clause}"
     try:
@@ -79,7 +79,7 @@ async def _resolve_style(
 ) -> dict[str, Any] | None:
     if not style_id:
         return None
-    filter_expr = f'style_id="{style_id}"'
+    filter_expr = f'style_id="{sanitize_filter_value(style_id)}"'
     if tenant_clause:
         filter_expr = f"{filter_expr} && {tenant_clause}"
     try:
@@ -115,7 +115,7 @@ async def list_templates(
         for tag in tags.split(","):
             tag = tag.strip()
             if tag:
-                filter_parts.append(f'~tags~"{sanitize_filter_value(tag)}"')
+                filter_parts.append(f'tags~"{sanitize_filter_value(tag)}"')
     if search:
         sanitized_search = sanitize_filter_value(search)
         filter_parts.append(

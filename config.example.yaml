@@ -54,3 +54,6 @@ storage:
   region: "us-east-1"
   presign_expiry_seconds: 900
   max_file_bytes: 10485760
+
+# Use a shared Redis URI in production so limits apply across all workers.
+rate_limit_storage_uri: "redis://redis:6379/0"

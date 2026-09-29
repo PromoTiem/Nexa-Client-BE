@@ -2,21 +2,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.application.services.bucket_resolver import (
-    create_bucket_for_site,
-    delete_bucket_for_site,
-    sanitize_bucket_name,
-)
-from app.application.services.site_deployer import (
-    cleanup_all_domains,
-    remove_dns_for_domain,
-    remove_domain_from_pages,
-    sanitize_project_name,
+from app.application.services.site_lifecycle_service import (
+    create_site_record,
+    delete_site_record,
 )
 from app.config import get_settings
 from app.infrastructure.cloudflare.client import CloudflareClient
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.infrastructure.storage.client import StorageClient
 from app.interface.dependencies import (
     TenantContext,
@@ -37,6 +31,7 @@ from app.interface.route_helpers import (
     public_id_to_record_id,
     record_id_to_public_id,
     tenant_record_id,
+    tenant_resource_id,
     validate_id,
     validate_sort,
 )
@@ -129,35 +124,24 @@ async def create_site(
     if not tenant:
         raise HTTPException(status_code=403, detail="Client access requires tenant_id")
     tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
-    template_record_id = await public_id_to_record_id(
-        pb, "templates", "template_id", body.template_id, ctx.token
+    template_record_id = await tenant_resource_id(
+        pb, "templates", "template_id", body.template_id, ctx.token, ctx.tenant_id
     )
 
-    await create_bucket_for_site(body.site_id, storage)
-
-    bucket_name = sanitize_bucket_name(body.site_id)
     data: dict[str, Any] = {
         "site_id": body.site_id,
         "tenant_id": tenant_pb_id,
         "template_id": template_record_id,
         "domain": body.domain,
         "status": body.status or "draft",
-        "bucket_name": bucket_name,
         "default": body.default or False,
     }
     if body.config is not None:
         data["config"] = body.config
 
-    try:
-        record = await pb.create_record(
-            collection=COLLECTION,
-            data=data,
-            token=ctx.token,
-            user_id=ctx.user_id,
-        )
-    except Exception:
-        await delete_bucket_for_site(bucket_name, storage)
-        raise
+    record = await create_site_record(
+        pb, storage, data, ctx.token, ctx.user_id, get_settings().site_base_domain
+    )
 
     return _record_to_response(
         await map_site_record(
@@ -176,7 +160,7 @@ async def get_site(
     validate_id(site_id, "site_id")
     record = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
     record = await map_site_record(
@@ -197,7 +181,7 @@ async def update_site(
     validate_id(site_id, "site_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
     mapped_existing = await map_site_record(
@@ -205,25 +189,18 @@ async def update_site(
     )
     ctx.enforce_owns(mapped_existing)
 
-    if (
-        body.template_id is None
-        and body.domain is None
-        and body.domain_id is None
-        and body.config is None
-        and body.status is None
-        and body.default is None
-    ):
+    if not body.model_fields_set:
         return _record_to_response(mapped_existing)
 
     update_data: dict[str, Any] = {}
     if body.template_id is not None:
-        update_data["template_id"] = await public_id_to_record_id(
-            pb, "templates", "template_id", body.template_id, ctx.token
+        update_data["template_id"] = await tenant_resource_id(
+            pb, "templates", "template_id", body.template_id, ctx.token, ctx.tenant_id
         )
-    if body.domain is not None:
+    if "domain" in body.model_fields_set:
         update_data["domain"] = body.domain
-    if body.domain_id is not None:
-        if body.domain_id == "":
+    if "domain_id" in body.model_fields_set:
+        if not body.domain_id:
             update_data["domain_id"] = ""  # unlink
         else:
             dom_record_id = await public_id_to_record_id(
@@ -233,7 +210,7 @@ async def update_site(
             if tenant:
                 dom = await pb.find_one_by_filter(
                     collection="domains",
-                    filter_expr=f'id="{dom_record_id}"',
+                    filter_expr=f'id="{sanitize_filter_value(dom_record_id)}"',
                     token=ctx.token,
                 )
                 dom_tenant_public = await record_id_to_public_id(
@@ -242,7 +219,7 @@ async def update_site(
                 if dom_tenant_public != tenant:
                     raise HTTPException(status_code=404, detail="Domain not found")
             update_data["domain_id"] = dom_record_id
-    if body.config is not None:
+    if "config" in body.model_fields_set:
         update_data["config"] = body.config
     if body.status is not None:
         update_data["status"] = body.status
@@ -274,7 +251,7 @@ async def delete_site(
     validate_id(site_id, "site_id")
     existing = await pb.find_one_by_filter(
         collection=COLLECTION,
-        filter_expr=f'site_id="{site_id}"',
+        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
     mapped_existing = await map_site_record(
@@ -282,41 +259,7 @@ async def delete_site(
     )
     ctx.enforce_owns(mapped_existing)
 
-    project_name = sanitize_project_name(site_id)
-    base_domain = get_settings().site_base_domain
-    custom_domain = f"{project_name}.{base_domain}"
-
-    try:
-        await remove_domain_from_pages(project_name, custom_domain, cf)
-    except Exception as e:
-        logger.warning(
-            "failed to remove domain from pages during delete",
-            extra={"site_id": site_id, "error": str(e)},
-        )
-
-    try:
-        await remove_dns_for_domain(custom_domain, cf)
-    except Exception as e:
-        logger.warning(
-            "failed to remove DNS during delete",
-            extra={"site_id": site_id, "error": str(e)},
-        )
-
-    await cleanup_all_domains(
-        project_name, existing.get("domain_id"), cf, pb, ctx.token
-    )
-
-    try:
-        await delete_bucket_for_site(sanitize_bucket_name(site_id), storage)
-    except Exception as e:
-        logger.warning(
-            "failed to delete bucket during delete",
-            extra={"site_id": site_id, "error": str(e)},
-        )
-
-    await pb.delete_record(
-        collection=COLLECTION,
-        record_id=existing["id"],
-        token=ctx.token,
+    await delete_site_record(
+        pb, cf, storage, existing, ctx.token, get_settings().site_base_domain
     )
     return Response(status_code=204)

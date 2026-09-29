@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.interface.dto.common import PaginatedResponse, ServeStatus
 
@@ -23,6 +23,13 @@ class SiteUpdateRequest(BaseModel):
     config: dict[str, Any] | None = None
     status: SiteStatus | None = None
     default: bool | None = None
+
+    @field_validator("template_id", "status", "default")
+    @classmethod
+    def reject_null_fields(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class SiteResponse(BaseModel):
