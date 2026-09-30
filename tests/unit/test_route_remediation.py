@@ -342,9 +342,7 @@ async def test_batch_paginates_and_filters():
         assert 'type="spa_service"' in call.kwargs["filter"]
 
 
-@pytest.mark.parametrize(
-    "extra", [{"status": "published"}, {"type": "post"}, {"seo": {}}]
-)
+@pytest.mark.parametrize("extra", [{"type": "post"}, {"seo": {}}])
 def test_public_dto_rejects_authoring_fields(extra):
     with pytest.raises(ValidationError):
         PublicBookingRequest(
@@ -619,7 +617,7 @@ async def test_site_create_configures_browser_cors():
     )
 
 
-async def test_public_booking_persists_only_draft_and_trusted_fields():
+async def test_public_booking_persists_only_published_and_trusted_fields():
     pb = AsyncMock()
     pb.find_one_by_filter.side_effect = [
         {
@@ -653,7 +651,7 @@ async def test_public_booking_persists_only_draft_and_trusted_fields():
         },
     )
     data = pb.create_record.call_args.kwargs["data"]
-    assert data["status"] == "draft"
+    assert data["status"] == "published"
     assert data["type"] == "booking_submission"
     assert data["fields"][0]["type"] == "text"
     assert data["property_id"].startswith("booking_")

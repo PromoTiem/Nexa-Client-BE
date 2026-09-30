@@ -54,7 +54,8 @@ async def create_booking(
             "property_id": data.get("property_id") or f"booking_{uuid.uuid4().hex}",
             "type": "booking_submission",
             "name": data["name"],
-            "status": "draft",
+            # Published means submitted, not approved or confirmed.
+            "status": "published",
             "fields": fields,
             "groups": [],
             "metadata": {"service_id": service_id, "source": "website"},
