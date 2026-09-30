@@ -142,6 +142,7 @@ class PublicBookingRequest(BaseModel):
     )
     type: Literal["booking_submission"] = "booking_submission"
     name: str = Field(min_length=1, max_length=200)
-    status: Literal["draft"] = "draft"
+    # Published means submitted, not approved or confirmed.
+    status: Literal["published"] = "published"
     fields: list[PropertyField] = Field(max_length=30)
     metadata: PublicBookingMetadata
