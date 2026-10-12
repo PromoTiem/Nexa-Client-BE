@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.application.access import assert_site_active
 from app.application.services import serve_service
 from app.application.services.serve_service import (
     DomainNotVerifiedError,
@@ -43,6 +44,7 @@ async def _load_site(site_id: str, ctx: TenantContext, pb: PocketBaseClient) -> 
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
+    assert_site_active(record)
     mapped = await map_site_record(record, ctx.token, pb, fields=("tenant_id",))
     ctx.enforce_owns(mapped)
     return record

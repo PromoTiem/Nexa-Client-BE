@@ -2,6 +2,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.application.access import (
+    ACTIVE_SITE_FILTER,
+    assert_site_active,
+    client_site_config,
+)
 from app.application.services.site_lifecycle_service import (
     create_site_record,
     delete_site_record,
@@ -37,9 +42,8 @@ from app.interface.route_helpers import (
 )
 
 COLLECTION = "sites"
-# Read-only PocketBase view that mirrors `sites` without the heavy `config`
-# blob. Created by the `sites_create_list_view` schema migration.
-SITES_LIST_VIEW = "sites_list"
+# Query sites directly so lifecycle filtering happens before pagination.
+# The legacy sites_list view omits config and cannot enforce this predicate.
 
 router = APIRouter()
 logger = get_logger("site_routes")
@@ -82,12 +86,12 @@ async def list_sites(
         sort, allowed_fields=["created_at", "updated_at", "name", "status"]
     )
     effective_tenant = ctx.tenant_id or tenant_id
-    filter_expr = None
+    filter_expr = ACTIVE_SITE_FILTER
     if effective_tenant:
         tenant_pb_id = await tenant_record_id(pb, ctx.token, effective_tenant)
-        filter_expr = f'tenant_id="{tenant_pb_id}"'
+        filter_expr = f'tenant_id="{tenant_pb_id}" && {ACTIVE_SITE_FILTER}'
     result = await pb.list_records(
-        collection=SITES_LIST_VIEW,
+        collection=COLLECTION,
         token=ctx.token,
         filter=filter_expr,
         sort=sort,
@@ -137,7 +141,7 @@ async def create_site(
         "default": body.default or False,
     }
     if body.config is not None:
-        data["config"] = body.config
+        data["config"] = client_site_config(body.config)
 
     record = await create_site_record(
         pb, storage, data, ctx.token, ctx.user_id, get_settings().site_base_domain
@@ -163,6 +167,7 @@ async def get_site(
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
+    assert_site_active(record)
     record = await map_site_record(
         record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
     )
@@ -184,6 +189,7 @@ async def update_site(
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
+    assert_site_active(existing)
     mapped_existing = await map_site_record(
         existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
     )
@@ -220,7 +226,7 @@ async def update_site(
                     raise HTTPException(status_code=404, detail="Domain not found")
             update_data["domain_id"] = dom_record_id
     if "config" in body.model_fields_set:
-        update_data["config"] = body.config
+        update_data["config"] = client_site_config(body.config, existing.get("config"))
     if body.status is not None:
         update_data["status"] = body.status
     if body.default is not None:
@@ -254,6 +260,7 @@ async def delete_site(
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
+    assert_site_active(existing)
     mapped_existing = await map_site_record(
         existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
     )

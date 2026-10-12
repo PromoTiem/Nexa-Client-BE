@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.application.access import assert_site_active
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
@@ -61,6 +62,7 @@ async def _resolve_site_tenant(site_id: str, pb: PocketBaseClient, token: str) -
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=token,
     )
+    assert_site_active(site)
     return site.get("tenant_id", "")
 
 
@@ -155,6 +157,7 @@ async def create_build(
         filter_expr=f'site_id="{sanitize_filter_value(body.site_id)}"',
         token=ctx.token,
     )
+    assert_site_active(site)
     if site.get("tenant_id") != tenant_pb_id:
         raise HTTPException(status_code=404, detail="Site not found")
 

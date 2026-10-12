@@ -1,3 +1,4 @@
+from app.application.access import assert_site_active
 from app.application.services.utils import SITES_COLLECTION, sanitize_name
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -25,6 +26,7 @@ async def ensure_site_bucket(
         token=token,
     )
 
+    assert_site_active(site)
     bucket_name = site.get("bucket_name") or sanitize_bucket_name(site_id)
 
     s3_exists = await storage.bucket_exists(bucket_name)

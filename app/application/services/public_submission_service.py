@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.application.access import assert_site_active
 from app.application.services.property_service import PropertyService
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
@@ -15,6 +16,7 @@ async def create_booking(
     site = await pb.find_one_by_filter(
         "sites", f'site_id="{sanitize_filter_value(site_id)}"'
     )
+    assert_site_active(site)
     policy = (site.get("config") or {}).get("public_submissions") or {}
     if policy.get("enabled") is not True or "booking_submission" not in policy.get(
         "types", []
