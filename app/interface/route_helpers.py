@@ -198,6 +198,37 @@ async def record_id_to_public_id(
 # ----- record field mapping -------------------------------------------- #
 
 
+async def map_site_records(
+    records: list[dict[str, Any]], token: str, pb: PocketBaseClient
+) -> list[dict[str, Any]]:
+    """Resolve a page's relations once per collection, retaining caller auth."""
+    mapped = [dict(record) for record in records]
+    for field, collection, public_field in (
+        ("tenant_id", "tenants", "tenant_id"),
+        ("template_id", "templates", "template_id"),
+        ("domain_id", "domains", "domain_id"),
+    ):
+        ids = list(dict.fromkeys(r[field] for r in records if r.get(field)))
+        resolved = {}
+        for offset in range(0, len(ids), 100):
+            chunk = ids[offset : offset + 100]
+            result = await pb.list_records(
+                collection=collection,
+                token=token,
+                filter=" || ".join(
+                    f'id="{sanitize_filter_value(value)}"' for value in chunk
+                ),
+                page=1,
+                per_page=len(chunk),
+            )
+            resolved.update(
+                (row["id"], row.get(public_field)) for row in result.get("items", [])
+            )
+        for row in mapped:
+            row[field] = resolved.get(row.get(field))
+    return mapped
+
+
 async def map_site_record(
     record: dict[str, Any],
     token: str,

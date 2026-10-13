@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, Query, Response
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
 from app.application.services.public_submission_service import create_booking
+from app.application.services.record_mutation import locked_record
 from app.infrastructure.logging import get_logger
+from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     TenantContext,
@@ -82,31 +84,32 @@ async def create_property(
     enforce_permission(ctx.auth, Permission.PROPERTIES_CREATE)
     validate_id(site_id, "site_id")
     validate_id(body.property_id, "property_id")
-    await ctx.enforce_site(pb, site_id)
+    async with operation_lock(f"site:{site_id}"):
+        await ctx.enforce_site(pb, site_id)
 
-    service = PropertyService()
-    record = await service.create_property(
-        pb=pb,
-        token=ctx.token,
-        user_id=ctx.user_id,
-        site_id=site_id,
-        data={
-            "property_id": body.property_id,
-            "type": body.type,
-            "subtype": body.subtype,
-            "name": body.name,
-            "slug": body.slug,
-            "status": body.status,
-            "excerpt": body.excerpt,
-            "featured_image": body.featured_image,
-            "seo": body.seo,
-            "fields": body.fields,
-            "groups": body.groups,
-            "metadata": body.metadata,
-            "ordering": body.ordering,
-        },
-    )
-    return _record_to_response(record)
+        service = PropertyService()
+        record = await service.create_property(
+            pb=pb,
+            token=ctx.token,
+            user_id=ctx.user_id,
+            site_id=site_id,
+            data={
+                "property_id": body.property_id,
+                "type": body.type,
+                "subtype": body.subtype,
+                "name": body.name,
+                "slug": body.slug,
+                "status": body.status,
+                "excerpt": body.excerpt,
+                "featured_image": body.featured_image,
+                "seo": body.seo,
+                "fields": body.fields,
+                "groups": body.groups,
+                "metadata": body.metadata,
+                "ordering": body.ordering,
+            },
+        )
+        return _record_to_response(record)
 
 
 # ------------------------------------------------------------------ #
@@ -212,27 +215,28 @@ async def update_property(
 ) -> PropertyResponse:
     enforce_permission(ctx.auth, Permission.PROPERTIES_UPDATE)
     validate_id(property_id, "property_id")
-    existing = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
-        token=ctx.token,
-    )
-    await ctx.enforce_site(pb, existing["site_id"])
+    async with locked_record(
+        pb,
+        COLLECTION,
+        f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
+        ctx.token,
+    ) as existing:
+        await ctx.enforce_site(pb, existing["site_id"])
 
-    updates = body.model_dump(exclude_unset=True)
+        updates = body.model_dump(exclude_unset=True)
 
-    if not updates:
-        return _record_to_response(existing)
+        if not updates:
+            return _record_to_response(existing)
 
-    service = PropertyService()
-    record = await service.update_property(
-        pb=pb,
-        token=ctx.token,
-        user_id=ctx.user_id,
-        record=existing,
-        updates=updates,
-    )
-    return _record_to_response(record)
+        service = PropertyService()
+        record = await service.update_property(
+            pb=pb,
+            token=ctx.token,
+            user_id=ctx.user_id,
+            record=existing,
+            updates=updates,
+        )
+        return _record_to_response(record)
 
 
 # ------------------------------------------------------------------ #
@@ -251,21 +255,22 @@ async def delete_property(
 ) -> Response:
     enforce_permission(ctx.auth, Permission.PROPERTIES_DELETE)
     validate_id(property_id, "property_id")
-    existing = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
-        token=ctx.token,
-    )
-    await ctx.enforce_site(pb, existing["site_id"])
+    async with locked_record(
+        pb,
+        COLLECTION,
+        f'property_id="{property_id}" && {SOFT_DELETE_FILTER}',
+        ctx.token,
+    ) as existing:
+        await ctx.enforce_site(pb, existing["site_id"])
 
-    service = PropertyService()
-    await service.soft_delete_property(
-        pb=pb,
-        token=ctx.token,
-        user_id=ctx.user_id,
-        record=existing,
-    )
-    return Response(status_code=204)
+        service = PropertyService()
+        await service.soft_delete_property(
+            pb=pb,
+            token=ctx.token,
+            user_id=ctx.user_id,
+            record=existing,
+        )
+        return Response(status_code=204)
 
 
 # ------------------------------------------------------------------ #

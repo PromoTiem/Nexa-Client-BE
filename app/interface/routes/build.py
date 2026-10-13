@@ -2,7 +2,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.application.access import assert_site_active
+from app.application.services.build_visibility import visible_site_filter
+from app.application.services.record_mutation import locked_record
 from app.infrastructure.logging import get_logger
+from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.interface.dependencies import (
@@ -20,7 +24,6 @@ from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     build_filter,
     record_id_to_public_id,
-    tenant_filter,
     tenant_record_id,
     tenant_resource_id,
     validate_id,
@@ -61,6 +64,7 @@ async def _resolve_site_tenant(site_id: str, pb: PocketBaseClient, token: str) -
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=token,
     )
+    assert_site_active(site)
     return site.get("tenant_id", "")
 
 
@@ -68,7 +72,7 @@ async def _enforce_build_tenant(
     record: dict[str, Any], ctx: TenantContext, pb: PocketBaseClient
 ) -> None:
     if not ctx.tenant_id:
-        return
+        raise HTTPException(403, "Client access requires tenant_id")
     site_tenant = await _resolve_site_tenant(record["site_id"], pb, ctx.token)
     site_tenant_public = await record_id_to_public_id(
         pb, "tenants", "tenant_id", site_tenant, ctx.token
@@ -87,34 +91,41 @@ async def list_builds(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BuildListResponse:
-    enforce_permission(ctx.auth, Permission.BUILDS_LIST)
-    sort = validate_sort(sort, allowed_fields=["created_at", "updated_at", "status"])
-    filter_parts = []
-    if ctx.tenant_id:
-        tenant_clause = await tenant_filter(pb, ctx.token, ctx.tenant_id)
-        filter_parts.append(tenant_clause)
-    if site_id:
-        filter_parts.append(f'site_id="{sanitize_filter_value(site_id)}"')
-    if status:
-        filter_parts.append(f'status="{sanitize_filter_value(status)}"')
-    filter_expr = build_filter(filter_parts)
+    async with operation_lock("domain-lifecycle"):
+        enforce_permission(ctx.auth, Permission.BUILDS_LIST)
+        sort = validate_sort(
+            sort, allowed_fields=["created_at", "updated_at", "status"]
+        )
+        tenant_id = await tenant_record_id(pb, ctx.token, ctx.tenant_id)
+        parent_filter = await visible_site_filter(pb, ctx.token, tenant_id, site_id)
+        if parent_filter is None:
+            return BuildListResponse(
+                items=[], total=0, page=page, per_page=per_page, total_pages=0
+            )
+        filter_parts = [
+            f'tenant_id="{sanitize_filter_value(tenant_id)}"',
+            parent_filter,
+        ]
+        if status:
+            filter_parts.append(f'status="{sanitize_filter_value(status)}"')
+        filter_expr = build_filter(filter_parts)
 
-    result = await pb.list_records(
-        collection=COLLECTION,
-        token=ctx.token,
-        filter=filter_expr,
-        sort=sort,
-        page=page,
-        per_page=per_page,
-    )
-    items = [_record_to_response(r) for r in result.get("items", [])]
-    return BuildListResponse(
-        items=items,
-        total=result.get("totalItems", 0),
-        page=result.get("page", page),
-        per_page=result.get("perPage", per_page),
-        total_pages=result.get("totalPages", 0),
-    )
+        result = await pb.list_records(
+            collection=COLLECTION,
+            token=ctx.token,
+            filter=filter_expr,
+            sort=sort,
+            page=page,
+            per_page=per_page,
+        )
+        items = [_record_to_response(r) for r in result.get("items", [])]
+        return BuildListResponse(
+            items=items,
+            total=result.get("totalItems", 0),
+            page=result.get("page", page),
+            per_page=result.get("perPage", per_page),
+            total_pages=result.get("totalPages", 0),
+        )
 
 
 @router.get("/{build_id}", response_model=BuildResponse)
@@ -140,53 +151,65 @@ async def create_build(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BuildResponse:
-    enforce_permission(ctx.auth, Permission.BUILDS_CREATE)
-    validate_id(body.build_id, "build_id")
-    validate_id(body.site_id, "site_id")
+    async with (
+        operation_lock(f"site:{body.site_id}"),
+        operation_lock("build-lifecycle"),
+    ):
+        enforce_permission(ctx.auth, Permission.BUILDS_CREATE)
+        validate_id(body.build_id, "build_id")
+        validate_id(body.site_id, "site_id")
 
-    tenant = ctx.tenant_id
-    if not tenant:
-        raise HTTPException(status_code=403, detail="Client access requires tenant_id")
+        tenant = ctx.tenant_id
+        if not tenant:
+            raise HTTPException(
+                status_code=403, detail="Client access requires tenant_id"
+            )
 
-    tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
+        tenant_pb_id = await tenant_record_id(pb, ctx.token, tenant)
 
-    site = await pb.find_one_by_filter(
-        collection="sites",
-        filter_expr=f'site_id="{sanitize_filter_value(body.site_id)}"',
-        token=ctx.token,
-    )
-    if site.get("tenant_id") != tenant_pb_id:
-        raise HTTPException(status_code=404, detail="Site not found")
-
-    data: dict[str, Any] = {
-        "build_id": body.build_id,
-        "site_id": body.site_id,
-        "status": "queued",
-        "description": "Manual build",
-        "tenant_id": tenant_pb_id,
-    }
-    if body.template_id:
-        validate_id(body.template_id, "template_id")
-        await tenant_resource_id(
-            pb, "templates", "template_id", body.template_id, ctx.token, ctx.tenant_id
+        site = await pb.find_one_by_filter(
+            collection="sites",
+            filter_expr=f'site_id="{sanitize_filter_value(body.site_id)}"',
+            token=ctx.token,
         )
-        data["template_id"] = body.template_id
-    if body.content_id is not None:
-        data["content_id"] = body.content_id
-    if body.config is not None:
-        data["config"] = body.config
+        assert_site_active(site)
+        if site.get("tenant_id") != tenant_pb_id:
+            raise HTTPException(status_code=404, detail="Site not found")
 
-    record = await pb.create_record(
-        collection=COLLECTION,
-        data=data,
-        token=ctx.token,
-        user_id=ctx.user_id,
-    )
-    logger.info(
-        "build created via API",
-        extra={"build_id": body.build_id, "site_id": body.site_id},
-    )
-    return _record_to_response(record)
+        data: dict[str, Any] = {
+            "build_id": body.build_id,
+            "site_id": body.site_id,
+            "status": "queued",
+            "description": "Manual build",
+            "tenant_id": tenant_pb_id,
+        }
+        if body.template_id:
+            validate_id(body.template_id, "template_id")
+            await tenant_resource_id(
+                pb,
+                "templates",
+                "template_id",
+                body.template_id,
+                ctx.token,
+                ctx.tenant_id,
+            )
+            data["template_id"] = body.template_id
+        if body.content_id is not None:
+            data["content_id"] = body.content_id
+        if body.config is not None:
+            data["config"] = body.config
+
+        record = await pb.create_record(
+            collection=COLLECTION,
+            data=data,
+            token=ctx.token,
+            user_id=ctx.user_id,
+        )
+        logger.info(
+            "build created via API",
+            extra={"build_id": body.build_id, "site_id": body.site_id},
+        )
+        return _record_to_response(record)
 
 
 @router.patch("/{build_id}", response_model=BuildResponse)
@@ -198,24 +221,48 @@ async def update_build(
 ) -> BuildResponse:
     enforce_permission(ctx.auth, Permission.BUILDS_CREATE)
     validate_id(build_id, "build_id")
-    record = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
-        token=ctx.token,
-    )
-    await _enforce_build_tenant(record, ctx, pb)
+    async with locked_record(
+        pb,
+        COLLECTION,
+        f'build_id="{sanitize_filter_value(build_id)}"',
+        ctx.token,
+        build=True,
+    ) as record:
+        await _enforce_build_tenant(record, ctx, pb)
 
-    updates = body.model_dump(exclude_unset=True)
+        if record.get("status") == "building":
+            raise HTTPException(409, "Active build attempts cannot be edited")
+        if body.status in {"building", "completed"}:
+            raise HTTPException(409, "Only the build executor can set this status")
+        updates = body.model_dump(exclude_unset=True)
+        if body.status == "queued":
+            config = dict(
+                body.config if body.config is not None else record.get("config") or {}
+            )
+            config.pop("_nexa_attempt", None)
+            updates.update(
+                config=config,
+                image="",
+                started_at="",
+                completed_at="",
+                error_message="",
+                build_log="",
+            )
+        elif "config" in updates and "_nexa_attempt" in (record.get("config") or {}):
+            updates["config"] = {
+                **(updates["config"] or {}),
+                "_nexa_attempt": record["config"]["_nexa_attempt"],
+            }
 
-    if updates:
-        record = await pb.update_record(
-            collection=COLLECTION,
-            record_id=record["id"],
-            data=updates,
-            token=ctx.token,
-            user_id=ctx.user_id,
-        )
-    return _record_to_response(record)
+        if updates:
+            record = await pb.update_record(
+                collection=COLLECTION,
+                record_id=record["id"],
+                data=updates,
+                token=ctx.token,
+                user_id=ctx.user_id,
+            )
+        return _record_to_response(record)
 
 
 @router.delete("/{build_id}", status_code=204)
@@ -226,15 +273,19 @@ async def delete_build(
 ) -> Response:
     enforce_permission(ctx.auth, Permission.BUILDS_DELETE)
     validate_id(build_id, "build_id")
-    record = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
-        token=ctx.token,
-    )
-    await _enforce_build_tenant(record, ctx, pb)
-    await pb.delete_record(
-        collection=COLLECTION,
-        record_id=record["id"],
-        token=ctx.token,
-    )
-    return Response(status_code=204)
+    async with locked_record(
+        pb,
+        COLLECTION,
+        f'build_id="{sanitize_filter_value(build_id)}"',
+        ctx.token,
+        build=True,
+    ) as record:
+        await _enforce_build_tenant(record, ctx, pb)
+        if record.get("status") == "building":
+            raise HTTPException(409, "Active build attempts cannot be deleted")
+        await pb.delete_record(
+            collection=COLLECTION,
+            record_id=record["id"],
+            token=ctx.token,
+        )
+        return Response(status_code=204)

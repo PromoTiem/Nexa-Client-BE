@@ -1,11 +1,20 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
 from app.interface.dto.common import PaginatedResponse
 
 
-class BuildCreateRequest(BaseModel):
+class BuildConfigInput(BaseModel):
+    @field_validator("config", check_fields=False)
+    @classmethod
+    def reject_attempt_metadata(cls, value):
+        if isinstance(value, dict) and "_nexa_attempt" in value:
+            raise ValueError("Build attempt metadata is server-owned")
+        return value
+
+
+class BuildCreateRequest(BuildConfigInput):
     build_id: str
     site_id: str
     template_id: str | None = None
@@ -13,8 +22,8 @@ class BuildCreateRequest(BaseModel):
     config: dict[str, Any] | None = None
 
 
-class BuildUpdateRequest(BaseModel):
-    status: str | None = None
+class BuildUpdateRequest(BuildConfigInput):
+    status: Literal["queued", "building", "completed", "failed"] | None = None
     content_id: str | None = None
     config: dict[str, Any] | None = None
 

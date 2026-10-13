@@ -115,6 +115,7 @@ class TestSiteFileServiceConfirmUpload:
             return_value={
                 "id": "rec_1",
                 "file_id": "file_1",
+                "site_id": "site_1",
                 "status": "uploaded",
                 "bucket": "bucket_1",
                 "path": "site_1/test.png",
@@ -143,6 +144,7 @@ class TestSiteFileServiceConfirmUpload:
             return_value={
                 "id": "rec_1",
                 "file_id": "file_1",
+                "site_id": "site_1",
                 "status": "pending",
                 "bucket": "bucket_1",
                 "path": "site_1/test.png",
@@ -173,6 +175,7 @@ class TestSiteFileServiceConfirmUpload:
             return_value={
                 "id": "rec_1",
                 "file_id": "file_1",
+                "site_id": "site_1",
                 "status": "pending",
                 "bucket": "bucket_1",
                 "path": "site_1/test.png",
@@ -270,6 +273,7 @@ class TestSiteFileServiceDelete:
             return_value={
                 "id": "rec_1",
                 "file_id": "file_1",
+                "site_id": "site_1",
                 "bucket": "bucket_1",
                 "path": "site_1/test.png",
             }
@@ -296,17 +300,21 @@ class TestSiteFileServiceBulkDelete:
         service._allowed_mime = frozenset({"image/png"})
 
         pb = AsyncMock()
-        pb.find_one_by_filter.side_effect = [
-            {
+
+        async def find(collection, **kwargs):
+            if collection == "sites":
+                return {"id": "site_rec", "tenant_id": "pb_t1"}
+            if collection == "tenants":
+                return {"id": "pb_t1", "tenant_id": "t1"}
+            return {
                 "id": "rec_1",
                 "file_id": "file_1",
                 "site_id": "site_1",
                 "bucket": "bucket_1",
                 "path": "site_1/test.png",
-            },
-            {"id": "site_rec", "tenant_id": "pb_t1"},
-            {"id": "pb_t1", "tenant_id": "t1"},
-        ]
+            }
+
+        pb.find_one_by_filter.side_effect = find
         pb.delete_record = AsyncMock(return_value=None)
 
         from app.interface.dependencies import AuthContext

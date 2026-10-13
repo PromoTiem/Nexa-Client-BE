@@ -1,11 +1,13 @@
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from app.application.access import AuthContext, enforce_site_access
+from app.application.access import AuthContext, assert_site_active, enforce_site_access
 from app.application.services.bucket_resolver import ensure_site_bucket
 from app.infrastructure.logging import get_logger
+from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.infrastructure.storage.client import StorageClient
@@ -50,6 +52,24 @@ class SiteFileService:
     def _object_prefix(self, site_id: str) -> str:
         """Prefix passed to presign_put; StorageClient appends the filename."""
         return site_id
+
+    @asynccontextmanager
+    async def _locked_file(self, file_id, pb, token):
+        record = await self.get_record(file_id, pb, token)
+        site_id = record.get("site_id")
+        if not site_id:
+            raise HTTPException(404, "File not found")
+        async with operation_lock(f"site:{site_id}"):
+            record = await self.get_record(file_id, pb, token)
+            if record.get("site_id") != site_id:
+                raise HTTPException(409, "File parent changed; retry the request")
+            parent = await pb.find_one_by_filter(
+                collection="sites",
+                token=token,
+                filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
+            )
+            assert_site_active(parent)
+            yield record
 
     # ----- queries ----------------------------------------------------- #
 
@@ -111,75 +131,77 @@ class SiteFileService:
         user_id: str | None,
         extra_fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        # 1. site must exist
-        await pb.find_one_by_filter(
-            collection="sites",
-            filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
-            token=token,
-        )
-        # 2. MIME allowlist
-        if content_type not in self._allowed_mime:
-            raise HTTPException(
-                status_code=415,
-                detail=f"Unsupported file type: {content_type}",
+        async with operation_lock(f"site:{site_id}"):
+            # 1. site must exist
+            parent = await pb.find_one_by_filter(
+                collection="sites",
+                filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
+                token=token,
             )
-        # 3. declared size limit
-        if declared_size > self._max_file_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"File too large: {declared_size} bytes "
-                    f"(max {self._max_file_bytes})"
-                ),
+            assert_site_active(parent)
+            # 2. MIME allowlist
+            if content_type not in self._allowed_mime:
+                raise HTTPException(
+                    status_code=415,
+                    detail=f"Unsupported file type: {content_type}",
+                )
+            # 3. declared size limit
+            if declared_size > self._max_file_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"File too large: {declared_size} bytes "
+                        f"(max {self._max_file_bytes})"
+                    ),
+                )
+
+            # 4. ensure bucket exists (creates S3 bucket + updates site if needed)
+            bucket = await ensure_site_bucket(
+                site_id, pb, self._storage, token, self._site_base_domain
             )
 
-        # 4. ensure bucket exists (creates S3 bucket + updates site if needed)
-        bucket = await ensure_site_bucket(
-            site_id, pb, self._storage, token, self._site_base_domain
-        )
+            # 5. storage mints bucket/key + presigned PUT url
+            r = await self._storage.presign_put(
+                bucket, self._object_prefix(site_id), filename, content_type
+            )
+            key = r["key"]
 
-        # 5. storage mints bucket/key + presigned PUT url
-        r = await self._storage.presign_put(
-            bucket, self._object_prefix(site_id), filename, content_type
-        )
-        key = r["key"]
-
-        file_id = f"file_{uuid.uuid4().hex[:12]}"
-        data: dict[str, Any] = {
-            "status": "pending",
-            "file_id": file_id,
-            "site_id": site_id,
-            "page_id": page_id,
-            "name": name or filename,
-            "original_name": filename,
-            "mime_type": content_type,
-            "size": declared_size,
-            "bucket": bucket,
-            "path": key,
-            "metadata": {},
-            **(extra_fields or {}),
-        }
-        await pb.create_record(
-            collection=self.COLLECTION,
-            data=data,
-            token=token,
-            user_id=user_id,
-        )
-        self._logger.info(
-            f"{self._NOUN} upload created",
-            extra={
+            file_id = f"file_{uuid.uuid4().hex[:12]}"
+            data: dict[str, Any] = {
+                "status": "pending",
                 "file_id": file_id,
                 "site_id": site_id,
+                "page_id": page_id,
+                "name": name or filename,
+                "original_name": filename,
+                "mime_type": content_type,
                 "size": declared_size,
-            },
-        )
-        return {
-            "file_id": file_id,
-            "upload_url": r["upload_url"],
-            "expires_at": r["expires_at"],
-            "bucket": bucket,
-            "key": key,
-        }
+                "bucket": bucket,
+                "path": key,
+                "metadata": {},
+                **(extra_fields or {}),
+            }
+            await pb.create_record(
+                collection=self.COLLECTION,
+                data=data,
+                token=token,
+                user_id=user_id,
+            )
+            self._logger.info(
+                f"{self._NOUN} upload created",
+                extra={
+                    "file_id": file_id,
+                    "site_id": site_id,
+                    "size": declared_size,
+                },
+            )
+            return {
+                "file_id": file_id,
+                "upload_url": r["upload_url"],
+                "expires_at": r["expires_at"],
+                "bucket": bucket,
+                "key": key,
+            }
 
     async def confirm_upload(
         self,
@@ -188,48 +210,49 @@ class SiteFileService:
         token: str,
         user_id: str | None,
     ) -> dict[str, Any]:
-        record = await self.get_record(file_id, pb, token)
+        async with self._locked_file(file_id, pb, token) as record:
+            # idempotent: already confirmed -> return as-is, no HEAD re-check
+            if record.get("status") == "uploaded":
+                return record
 
-        # idempotent: already confirmed -> return as-is, no HEAD re-check
-        if record.get("status") == "uploaded":
-            return record
-
-        h = await self._storage.head(record["bucket"], record["path"])
-        if not h["exists"]:
-            raise HTTPException(
-                status_code=409,
-                detail="Object not found in storage; upload not completed",
-            )
-        if h["size"] != record["size"]:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Size mismatch: stored {h['size']} bytes, "
-                    f"declared {record['size']}"
-                ),
-            )
-
-        if h.get("content_type") and record.get("mime_type"):
-            stored_ct = h["content_type"].split(";")[0].strip().lower()
-            declared_ct = record["mime_type"].split(";")[0].strip().lower()
-            if stored_ct != declared_ct and stored_ct != "application/octet-stream":
+            h = await self._storage.head(record["bucket"], record["path"])
+            if not h["exists"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Object not found in storage; upload not completed",
+                )
+            if h["size"] != record["size"]:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        f"Content-Type mismatch: stored {stored_ct}, "
-                        f"declared {declared_ct}"
+                        f"Size mismatch: stored {h['size']} bytes, "
+                        f"declared {record['size']}"
                     ),
                 )
 
-        updated = await pb.update_record(
-            collection=self.COLLECTION,
-            record_id=record["id"],
-            data={"status": "uploaded"},
-            token=token,
-            user_id=user_id,
-        )
-        self._logger.info(f"{self._NOUN} upload confirmed", extra={"file_id": file_id})
-        return updated
+            if h.get("content_type") and record.get("mime_type"):
+                stored_ct = h["content_type"].split(";")[0].strip().lower()
+                declared_ct = record["mime_type"].split(";")[0].strip().lower()
+                if stored_ct != declared_ct and stored_ct != "application/octet-stream":
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Content-Type mismatch: stored {stored_ct}, "
+                            f"declared {declared_ct}"
+                        ),
+                    )
+
+            updated = await pb.update_record(
+                collection=self.COLLECTION,
+                record_id=record["id"],
+                data={"status": "uploaded"},
+                token=token,
+                user_id=user_id,
+            )
+            self._logger.info(
+                f"{self._NOUN} upload confirmed", extra={"file_id": file_id}
+            )
+            return updated
 
     # ----- metadata + deletion ----------------------------------------- #
 
@@ -241,14 +264,14 @@ class SiteFileService:
         token: str,
         user_id: str | None,
     ) -> dict[str, Any]:
-        record = await self.get_record(file_id, pb, token)
-        return await pb.update_record(
-            collection=self.COLLECTION,
-            record_id=record["id"],
-            data=updates,
-            token=token,
-            user_id=user_id,
-        )
+        async with self._locked_file(file_id, pb, token) as record:
+            return await pb.update_record(
+                collection=self.COLLECTION,
+                record_id=record["id"],
+                data=updates,
+                token=token,
+                user_id=user_id,
+            )
 
     async def delete_file(
         self,
@@ -257,16 +280,16 @@ class SiteFileService:
         token: str,
         user_id: str | None = None,
     ) -> None:
-        record = await self.get_record(file_id, pb, token)
-        # Object first: if delete_record fails afterwards the record points at
-        # a missing object (download will 404); the alternative orphans the
-        # object. Matches prior philosophy.
-        await self._storage.delete_object(record["bucket"], record["path"])
-        await pb.delete_record(
-            collection=self.COLLECTION,
-            record_id=record["id"],
-            token=token,
-        )
+        async with self._locked_file(file_id, pb, token) as record:
+            # Object first: if delete_record fails afterwards the record points at
+            # a missing object (download will 404); the alternative orphans the
+            # object. Matches prior philosophy.
+            await self._storage.delete_object(record["bucket"], record["path"])
+            await pb.delete_record(
+                collection=self.COLLECTION,
+                record_id=record["id"],
+                token=token,
+            )
 
     async def bulk_delete(
         self,
@@ -277,39 +300,23 @@ class SiteFileService:
         auth: Optional["AuthContext"] = None,
     ) -> list[dict[str, str]]:
         results: list[dict[str, str]] = []
-        tenant = auth.record.get("tenant_id") if auth else None
-        for file_id in file_ids:
+        for file_id in dict.fromkeys(file_ids):
             try:
-                record = await self.get_record(file_id, pb, token)
-            except HTTPException as exc:
-                status = "not_found" if exc.status_code == 404 else "error"
-                results.append({"file_id": file_id, "status": status})
-                continue
-
-            if auth:
-                try:
-                    if not tenant or not record.get("site_id"):
-                        raise HTTPException(status_code=404, detail="File not found")
-                    await enforce_site_access(pb, record["site_id"], auth)
-                except HTTPException as exc:
-                    results.append(
-                        {
-                            "file_id": file_id,
-                            "status": "not_found"
-                            if exc.status_code == 404
-                            else "error",
-                        }
+                async with self._locked_file(file_id, pb, token) as record:
+                    if auth:
+                        await enforce_site_access(pb, record["site_id"], auth)
+                    await self._storage.delete_object(record["bucket"], record["path"])
+                    await pb.delete_record(
+                        collection=self.COLLECTION, record_id=record["id"], token=token
                     )
-                    continue
-
-            try:
-                await self._storage.delete_object(record["bucket"], record["path"])
-                await pb.delete_record(
-                    collection=self.COLLECTION,
-                    record_id=record["id"],
-                    token=token,
-                )
                 results.append({"file_id": file_id, "status": "deleted"})
+            except HTTPException as exc:
+                results.append(
+                    {
+                        "file_id": file_id,
+                        "status": "not_found" if exc.status_code == 404 else "error",
+                    }
+                )
             except Exception:
                 self._logger.warning(
                     "bulk delete item failed", extra={"file_id": file_id}

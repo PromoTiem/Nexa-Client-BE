@@ -8,6 +8,26 @@ from fastapi import HTTPException
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
+ACTIVE_SITE_FILTER = '(config._nexa_lifecycle.deleted_at = null || config._nexa_lifecycle.deleted_at = "")'
+
+
+def assert_site_active(site: dict[str, Any]) -> None:
+    config = site.get("config")
+    lifecycle = config.get("_nexa_lifecycle") if isinstance(config, dict) else None
+    if isinstance(lifecycle, dict) and lifecycle.get("deleted_at"):
+        raise HTTPException(status_code=404, detail="Site not found")
+
+
+def client_site_config(
+    incoming: dict[str, Any] | None, existing: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Never let client config replacement erase or forge server lifecycle state."""
+    if incoming is not None and "_nexa_lifecycle" in incoming:
+        raise HTTPException(status_code=422, detail="Site lifecycle is server-owned")
+    if existing and "_nexa_lifecycle" in existing:
+        return {**(incoming or {}), "_nexa_lifecycle": existing["_nexa_lifecycle"]}
+    return incoming
+
 
 @dataclass
 class AuthContext:
@@ -26,6 +46,7 @@ async def enforce_site_access(
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=auth.token,
     )
+    assert_site_active(site)
     relation = site.get("tenant_id")
     if not relation:
         raise HTTPException(status_code=404, detail="Site not found")

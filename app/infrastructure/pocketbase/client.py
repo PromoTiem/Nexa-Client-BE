@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -48,12 +49,23 @@ class PocketBaseClient:
         max_retries: int = 3,
         retry_backoff: float = 0.5,
         static_token: str | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = httpx.Timeout(connect=5.0, read=timeout, write=10.0, pool=5.0)
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
+        self._http_client = http_client
         self._static_token = static_token
+
+    @asynccontextmanager
+    async def _client(self):
+        """Borrow the application pool, or own a short-lived client for scripts."""
+        if self._http_client is not None:
+            yield self._http_client
+        else:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                yield client
 
     def _get_auth_headers(self, token: str | None = None) -> dict[str, str]:
         if token:
@@ -123,7 +135,7 @@ class PocketBaseClient:
             payload["identityField"] = identity_field
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.post(url, json=payload)
 
         response = await self._execute_with_retry(
@@ -139,7 +151,7 @@ class PocketBaseClient:
     async def request_password_reset(self, collection: str, email: str) -> None:
         """Delegate token delivery and confirmation to PocketBase's reset flow."""
         url = f"{self._base_url}/api/collections/{collection}/request-password-reset"
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._client() as client:
             response = await client.post(url, json={"email": email})
         # PocketBase deliberately acknowledges nonexistent accounts as well.
         if response.status_code != 204:
@@ -153,7 +165,7 @@ class PocketBaseClient:
         url = f"{self._base_url}/api/collections/{collection}/auth-refresh"
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.post(
                     url,
                     headers={
@@ -188,7 +200,7 @@ class PocketBaseClient:
         payload = {"identity": email, "password": password}
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.post(url, json=payload)
 
         response = await self._execute_with_retry(
@@ -221,7 +233,7 @@ class PocketBaseClient:
             params["expand"] = expand
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.get(
                     url, params=params, headers=self._get_auth_headers(token)
                 )
@@ -287,7 +299,7 @@ class PocketBaseClient:
         url = f"{self._base_url}/api/collections/{collection}/records/{record_id}"
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.get(url, headers=self._get_auth_headers(token))
 
         response = await self._execute_with_retry(
@@ -313,7 +325,7 @@ class PocketBaseClient:
             payload["updated_by"] = user_id
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.post(
                     url, json=payload, headers=self._get_auth_headers(token)
                 )
@@ -339,7 +351,7 @@ class PocketBaseClient:
             payload["updated_by"] = user_id
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.patch(
                     url, json=payload, headers=self._get_auth_headers(token)
                 )
@@ -359,7 +371,7 @@ class PocketBaseClient:
         url = f"{self._base_url}/api/collections/{collection}/records/{record_id}"
 
         async def _do_request() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 return await client.delete(url, headers=self._get_auth_headers(token))
 
         response = await self._execute_with_retry(

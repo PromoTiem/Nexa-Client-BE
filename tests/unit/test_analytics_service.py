@@ -13,7 +13,9 @@ def _make_service(pb=None):
     collector.record_event = AsyncMock(return_value="evt_test123")
     collector.flush = AsyncMock(return_value={"accepted": 0, "rejected": 0})
     aggregator = AnalyticsAggregator(pb)
-    return AnalyticsService(collector=collector, aggregator=aggregator, pb=pb, token="test_token"), collector
+    return AnalyticsService(
+        collector=collector, aggregator=aggregator, pb=pb, token="test_token"
+    ), collector
 
 
 class TestAnalyticsServiceTrackEvent:
@@ -87,12 +89,30 @@ class TestAnalyticsServiceGetKpis:
     async def test_sums_multiple_days(self):
         pb = AsyncMock()
         aggs = [
-            {"total_views": 100, "unique_visitors": 50, "product_views": 30, "product_impressions": 20,
-             "add_to_carts": 10, "purchases": 5, "revenue": 250.0, "search_count": 8,
-             "avg_session_duration": 120.0, "pages_per_session": 3.0},
-            {"total_views": 200, "unique_visitors": 80, "product_views": 60, "product_impressions": 40,
-             "add_to_carts": 20, "purchases": 10, "revenue": 500.0, "search_count": 15,
-             "avg_session_duration": 90.0, "pages_per_session": 4.0},
+            {
+                "total_views": 100,
+                "unique_visitors": 50,
+                "product_views": 30,
+                "product_impressions": 20,
+                "add_to_carts": 10,
+                "purchases": 5,
+                "revenue": 250.0,
+                "search_count": 8,
+                "avg_session_duration": 120.0,
+                "pages_per_session": 3.0,
+            },
+            {
+                "total_views": 200,
+                "unique_visitors": 80,
+                "product_views": 60,
+                "product_impressions": 40,
+                "add_to_carts": 20,
+                "purchases": 10,
+                "revenue": 500.0,
+                "search_count": 15,
+                "avg_session_duration": 90.0,
+                "pages_per_session": 4.0,
+            },
         ]
         pb.list_records = AsyncMock(return_value={"items": aggs, "totalItems": 2})
         service, _ = _make_service(pb)
@@ -124,7 +144,9 @@ class TestAnalyticsServiceGetTrend:
         pb.list_records = AsyncMock(return_value={"items": aggs, "totalItems": 3})
         service, _ = _make_service(pb)
 
-        result = await service.get_trend("site_1", "views_trend", "2026-01-01", "2026-01-03")
+        result = await service.get_trend(
+            "site_1", "views_trend", "2026-01-01", "2026-01-03"
+        )
 
         assert len(result) == 3
         assert result[0] == {"date": "2026-01-01", "value": 100}
@@ -137,7 +159,9 @@ class TestAnalyticsServiceGetTrend:
         pb.list_records = AsyncMock(return_value={"items": [], "totalItems": 0})
         service, _ = _make_service(pb)
 
-        result = await service.get_trend("site_1", "unknown_metric", "2026-01-01", "2026-01-01")
+        result = await service.get_trend(
+            "site_1", "unknown_metric", "2026-01-01", "2026-01-01"
+        )
 
         assert result == []
 
@@ -153,15 +177,41 @@ class TestAnalyticsServiceGetKpisChange:
             call_count += 1
             if call_count == 1:
                 # Current period
-                return {"items": [{"total_views": 200, "unique_visitors": 0, "product_views": 0,
-                                   "product_impressions": 0, "add_to_carts": 0, "purchases": 0,
-                                   "revenue": 0, "search_count": 0, "avg_session_duration": None,
-                                   "pages_per_session": None}], "totalItems": 1}
+                return {
+                    "items": [
+                        {
+                            "total_views": 200,
+                            "unique_visitors": 0,
+                            "product_views": 0,
+                            "product_impressions": 0,
+                            "add_to_carts": 0,
+                            "purchases": 0,
+                            "revenue": 0,
+                            "search_count": 0,
+                            "avg_session_duration": None,
+                            "pages_per_session": None,
+                        }
+                    ],
+                    "totalItems": 1,
+                }
             # Previous period
-            return {"items": [{"total_views": 100, "unique_visitors": 0, "product_views": 0,
-                               "product_impressions": 0, "add_to_carts": 0, "purchases": 0,
-                               "revenue": 0, "search_count": 0, "avg_session_duration": None,
-                               "pages_per_session": None}], "totalItems": 1}
+            return {
+                "items": [
+                    {
+                        "total_views": 100,
+                        "unique_visitors": 0,
+                        "product_views": 0,
+                        "product_impressions": 0,
+                        "add_to_carts": 0,
+                        "purchases": 0,
+                        "revenue": 0,
+                        "search_count": 0,
+                        "avg_session_duration": None,
+                        "pages_per_session": None,
+                    }
+                ],
+                "totalItems": 1,
+            }
 
         pb.list_records = AsyncMock(side_effect=side_effect)
         service, _ = _make_service(pb)
@@ -192,7 +242,9 @@ class TestAnalyticsServiceDateRange:
         service, _ = _make_service()
         # Period 2026-01-11 to 2026-01-31 is 20 days
         # Previous period of equal length ends day before start: 2025-12-21 to 2026-01-10
-        prev_start, prev_end = service._previous_period_range("2026-01-11", "2026-01-31")
+        prev_start, prev_end = service._previous_period_range(
+            "2026-01-11", "2026-01-31"
+        )
         assert prev_start == "2025-12-21"
         assert prev_end == "2026-01-10"
 
@@ -208,7 +260,9 @@ class TestAnalyticsServiceGetBreakdown:
         pb.list_records = AsyncMock(return_value={"items": aggs, "totalItems": 2})
         service, _ = _make_service(pb)
 
-        result = await service.get_breakdown("site_1", "traffic_sources", "2026-01-01", "2026-01-01")
+        result = await service.get_breakdown(
+            "site_1", "traffic_sources", "2026-01-01", "2026-01-01"
+        )
 
         assert len(result) == 3
         labels = [r["label"] for r in result]
@@ -225,7 +279,9 @@ class TestAnalyticsServiceGetBreakdown:
         pb.list_records = AsyncMock(return_value={"items": aggs, "totalItems": 1})
         service, _ = _make_service(pb)
 
-        result = await service.get_breakdown("site_1", "device_breakdown", "2026-01-01", "2026-01-01")
+        result = await service.get_breakdown(
+            "site_1", "device_breakdown", "2026-01-01", "2026-01-01"
+        )
 
         assert len(result) == 2
         assert result[0]["label"] == "desktop"
@@ -242,7 +298,9 @@ class TestAnalyticsServiceGetBreakdown:
         pb.list_records = AsyncMock(return_value={"items": aggs, "totalItems": 3})
         service, _ = _make_service(pb)
 
-        result = await service.get_breakdown("site_1", "views_trend", "2026-01-01", "2026-01-01")
+        result = await service.get_breakdown(
+            "site_1", "views_trend", "2026-01-01", "2026-01-01"
+        )
 
         assert len(result) == 2
         assert result[0]["label"] == "prop_2"

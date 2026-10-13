@@ -30,7 +30,10 @@ class DailyAggregationScheduler:
         self._task = asyncio.create_task(self._run_loop())
         logger.info(
             "daily aggregation scheduler started",
-            extra={"aggregation_hour": self._aggregation_hour, "retention_days": self._retention_days},
+            extra={
+                "aggregation_hour": self._aggregation_hour,
+                "retention_days": self._retention_days,
+            },
         )
 
     async def stop(self) -> None:
@@ -46,13 +49,18 @@ class DailyAggregationScheduler:
         while True:
             try:
                 now = datetime.now(UTC)
-                target = now.replace(hour=self._aggregation_hour, minute=0, second=0, microsecond=0)
+                target = now.replace(
+                    hour=self._aggregation_hour, minute=0, second=0, microsecond=0
+                )
                 if target <= now:
                     target += timedelta(days=1)
                 wait_seconds = (target - now).total_seconds()
                 logger.info(
                     "next aggregation scheduled",
-                    extra={"target": target.isoformat(), "wait_seconds": int(wait_seconds)},
+                    extra={
+                        "target": target.isoformat(),
+                        "wait_seconds": int(wait_seconds),
+                    },
                 )
                 await asyncio.sleep(wait_seconds)
                 await self._run_aggregation()
@@ -61,7 +69,9 @@ class DailyAggregationScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("daily aggregation scheduler error", extra={"error": str(e)})
+                logger.error(
+                    "daily aggregation scheduler error", extra={"error": str(e)}
+                )
                 await asyncio.sleep(60)
 
     async def _run_aggregation(self) -> None:
@@ -81,14 +91,23 @@ class DailyAggregationScheduler:
 
         logger.info(
             "daily aggregation completed",
-            extra={"date": yesterday, "total_sites": len(site_ids), "aggregated": aggregated},
+            extra={
+                "date": yesterday,
+                "total_sites": len(site_ids),
+                "aggregated": aggregated,
+            },
         )
 
     async def _run_cleanup(self) -> None:
         if self._retention_days is None:
             return
-        cutoff = (datetime.now(UTC) - timedelta(days=self._retention_days)).strftime("%Y-%m-%dT00:00:00Z")
-        logger.info("running retention cleanup", extra={"cutoff": cutoff, "retention_days": self._retention_days})
+        cutoff = (datetime.now(UTC) - timedelta(days=self._retention_days)).strftime(
+            "%Y-%m-%dT00:00:00Z"
+        )
+        logger.info(
+            "running retention cleanup",
+            extra={"cutoff": cutoff, "retention_days": self._retention_days},
+        )
 
         try:
             page = 1
@@ -108,7 +127,10 @@ class DailyAggregationScheduler:
                         await self._pb.delete_record(COLLECTION_EVENTS, item["id"])
                         total_deleted += 1
                     except Exception as e:
-                        logger.warning("failed to delete old event", extra={"id": item.get("id"), "error": str(e)})
+                        logger.warning(
+                            "failed to delete old event",
+                            extra={"id": item.get("id"), "error": str(e)},
+                        )
 
                 if len(items) < 500 or total_deleted >= total:
                     break
