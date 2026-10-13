@@ -11,7 +11,7 @@ sys.path.insert(0, ".")
 from app.config import get_settings
 from app.infrastructure.storage.client import StorageClient
 
-SITE_BASE_DOMAIN = "promotiem.dpdns.org"
+SITE_BASE_DOMAIN = "promotiem.shop"
 
 CORS_ORIGINS = [
     f"https://{SITE_BASE_DOMAIN}",

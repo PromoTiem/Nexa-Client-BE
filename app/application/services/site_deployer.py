@@ -276,7 +276,9 @@ async def deploy_site(
     await ensure_project(project_name, cf)
 
     # Add _headers file for CSP fix
-    csp_value = "connect-src 'self' https://s3.promotiem.dpdns.org https://api-client.promotiem.dpdns.org"
+    csp_value = (
+        "connect-src 'self' https://s3.promotiem.shop https://api-client.promotiem.shop"
+    )
     _headers_content = f"/*\n  {csp_value}\n"
     files["/_headers"] = _headers_content.encode("utf-8")
 
