@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.application.access import assert_site_active
 from app.application.services.build_visibility import visible_site_filter
+from app.application.services.record_mutation import locked_record
 from app.infrastructure.logging import get_logger
 from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -220,24 +221,48 @@ async def update_build(
 ) -> BuildResponse:
     enforce_permission(ctx.auth, Permission.BUILDS_CREATE)
     validate_id(build_id, "build_id")
-    record = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
-        token=ctx.token,
-    )
-    await _enforce_build_tenant(record, ctx, pb)
+    async with locked_record(
+        pb,
+        COLLECTION,
+        f'build_id="{sanitize_filter_value(build_id)}"',
+        ctx.token,
+        build=True,
+    ) as record:
+        await _enforce_build_tenant(record, ctx, pb)
 
-    updates = body.model_dump(exclude_unset=True)
+        if record.get("status") == "building":
+            raise HTTPException(409, "Active build attempts cannot be edited")
+        if body.status in {"building", "completed"}:
+            raise HTTPException(409, "Only the build executor can set this status")
+        updates = body.model_dump(exclude_unset=True)
+        if body.status == "queued":
+            config = dict(
+                body.config if body.config is not None else record.get("config") or {}
+            )
+            config.pop("_nexa_attempt", None)
+            updates.update(
+                config=config,
+                image="",
+                started_at="",
+                completed_at="",
+                error_message="",
+                build_log="",
+            )
+        elif "config" in updates and "_nexa_attempt" in (record.get("config") or {}):
+            updates["config"] = {
+                **(updates["config"] or {}),
+                "_nexa_attempt": record["config"]["_nexa_attempt"],
+            }
 
-    if updates:
-        record = await pb.update_record(
-            collection=COLLECTION,
-            record_id=record["id"],
-            data=updates,
-            token=ctx.token,
-            user_id=ctx.user_id,
-        )
-    return _record_to_response(record)
+        if updates:
+            record = await pb.update_record(
+                collection=COLLECTION,
+                record_id=record["id"],
+                data=updates,
+                token=ctx.token,
+                user_id=ctx.user_id,
+            )
+        return _record_to_response(record)
 
 
 @router.delete("/{build_id}", status_code=204)
@@ -248,15 +273,19 @@ async def delete_build(
 ) -> Response:
     enforce_permission(ctx.auth, Permission.BUILDS_DELETE)
     validate_id(build_id, "build_id")
-    record = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'build_id="{sanitize_filter_value(build_id)}"',
-        token=ctx.token,
-    )
-    await _enforce_build_tenant(record, ctx, pb)
-    await pb.delete_record(
-        collection=COLLECTION,
-        record_id=record["id"],
-        token=ctx.token,
-    )
-    return Response(status_code=204)
+    async with locked_record(
+        pb,
+        COLLECTION,
+        f'build_id="{sanitize_filter_value(build_id)}"',
+        ctx.token,
+        build=True,
+    ) as record:
+        await _enforce_build_tenant(record, ctx, pb)
+        if record.get("status") == "building":
+            raise HTTPException(409, "Active build attempts cannot be deleted")
+        await pb.delete_record(
+            collection=COLLECTION,
+            record_id=record["id"],
+            token=ctx.token,
+        )
+        return Response(status_code=204)
