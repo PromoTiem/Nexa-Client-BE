@@ -9,6 +9,7 @@ from app.application.services.serve_service import (
     ServeTransitionError,
 )
 from app.infrastructure.cloudflare.client import CloudflareClient
+from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.storage.client import StorageClient
 from app.interface.dependencies import (
@@ -57,18 +58,19 @@ async def patch_serve_status(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> ServeStateResponse:
-    enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
-    record = await _load_site(site_id, ctx, pb)
-    try:
-        return await serve_service.patch_status(
-            pb=pb,
-            site_record=record,
-            target=body.status,
-            token=ctx.token,
-            user_id=ctx.user_id,
-        )
-    except ServeTransitionError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
+        enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
+        record = await _load_site(site_id, ctx, pb)
+        try:
+            return await serve_service.patch_status(
+                pb=pb,
+                site_record=record,
+                target=body.status,
+                token=ctx.token,
+                user_id=ctx.user_id,
+            )
+        except ServeTransitionError as e:
+            raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.post("/{site_id}/serve", response_model=SiteServeResponse)
@@ -79,25 +81,26 @@ async def serve_site(
     cf: CloudflareClient = Depends(get_cloudflare_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> SiteServeResponse:
-    enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
-    record = await _load_site(site_id, ctx, pb)
-    try:
-        return await serve_service.serve(
-            pb=pb,
-            cf=cf,
-            storage=storage,
-            site_record=record,
-            token=ctx.token,
-            user_id=ctx.user_id,
-        )
-    except ServeTransitionError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except DomainNotVerifiedError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except NoCompletedBuildError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ServeDeployError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
+        enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
+        record = await _load_site(site_id, ctx, pb)
+        try:
+            return await serve_service.serve(
+                pb=pb,
+                cf=cf,
+                storage=storage,
+                site_record=record,
+                token=ctx.token,
+                user_id=ctx.user_id,
+            )
+        except ServeTransitionError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except DomainNotVerifiedError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except NoCompletedBuildError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ServeDeployError as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{site_id}/stop", response_model=SiteStopResponse)
@@ -107,18 +110,19 @@ async def stop_site(
     pb: PocketBaseClient = Depends(get_pocketbase_client),
     cf: CloudflareClient = Depends(get_cloudflare_client),
 ) -> SiteStopResponse:
-    enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
-    record = await _load_site(site_id, ctx, pb)
-    try:
-        return await serve_service.stop(
-            pb=pb,
-            cf=cf,
-            site_record=record,
-            token=ctx.token,
-            user_id=ctx.user_id,
-        )
-    except ServeTransitionError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
+        enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
+        record = await _load_site(site_id, ctx, pb)
+        try:
+            return await serve_service.stop(
+                pb=pb,
+                cf=cf,
+                site_record=record,
+                token=ctx.token,
+                user_id=ctx.user_id,
+            )
+        except ServeTransitionError as e:
+            raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.get("/{site_id}/pipeline", response_model=PipelineResponse)

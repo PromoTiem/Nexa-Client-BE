@@ -46,7 +46,7 @@ async def test_direct_site_routes_reject_retained(operation):
         elif operation == "patch":
             await site.update_site("s", SiteUpdateRequest(config={}), context(), pb)
         elif operation == "delete":
-            await site.delete_site("s", context(), pb, AsyncMock(), AsyncMock())
+            await site.delete_site("s", context(), pb)
         else:
             await serve._load_site("s", context(), pb)
     assert exc.value.status_code == 404
@@ -104,16 +104,14 @@ async def test_retained_bulk_delete_preserves_objects_and_records():
     from app.application.services.storage_service import StorageFileService
 
     pb, objects = AsyncMock(), AsyncMock()
-    pb.find_one_by_filter.side_effect = [
-        {
-            "id": "file-record",
-            "file_id": "f",
-            "site_id": "s",
-            "bucket": "b",
-            "path": "key",
-        },
-        retained(),
-    ]
+    file = {
+        "id": "file-record",
+        "file_id": "f",
+        "site_id": "s",
+        "bucket": "b",
+        "path": "key",
+    }
+    pb.find_one_by_filter.side_effect = [file, file, retained()]
     service = StorageFileService(objects, 1000)
     assert await service.bulk_delete(["f"], pb, "test", auth=context().auth) == [
         {"file_id": "f", "status": "not_found"}
