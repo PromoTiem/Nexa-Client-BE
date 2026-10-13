@@ -29,8 +29,12 @@ _bearer = HTTPBearer(auto_error=False)
 
 def get_pocketbase_client(
     settings: Settings = Depends(get_settings),
+    request: Request = None,
 ) -> PocketBaseClient:
     return PocketBaseClient(
+        http_client=getattr(request.app.state, "pocketbase_http", None)
+        if request
+        else None,
         base_url=settings.pocketbase_url,
         timeout=settings.pocketbase_timeout,
         max_retries=settings.pocketbase_max_retries,

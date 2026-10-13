@@ -32,6 +32,7 @@ from app.interface.dto.site import (
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     map_site_record,
+    map_site_records,
     public_id_to_record_id,
     record_id_to_public_id,
     tenant_record_id,
@@ -97,14 +98,8 @@ async def list_sites(
         page=page,
         per_page=per_page,
     )
-    items = [
-        _record_to_response(
-            await map_site_record(
-                r, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
-            )
-        )
-        for r in result.get("items", [])
-    ]
+    rows = await map_site_records(result.get("items", []), ctx.token, pb)
+    items = [_record_to_response(row) for row in rows]
     return SiteListResponse(
         items=items,
         total=result.get("totalItems", 0),
