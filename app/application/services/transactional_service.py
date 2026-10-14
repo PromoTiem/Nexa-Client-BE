@@ -4,6 +4,11 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from app.application.services.order_policy import (
+    finite_decimal,
+    require_editable,
+    validate_transition,
+)
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
@@ -14,6 +19,28 @@ def filter_value(value: str) -> str:
 
 class TransactionalService:
     """Read-side access to property-linked orders and bookings."""
+
+    async def _order_children(
+        self, pb: PocketBaseClient, token: str, collection: str, order_id: str
+    ) -> list[dict[str, Any]]:
+        items = []
+        page = 1
+        while True:
+            result = await pb.list_records(
+                collection,
+                token=token,
+                filter=f"order_id={filter_value(order_id)}",
+                sort="id",
+                page=page,
+                per_page=100,
+            )
+            batch = result.get("items", [])
+            items.extend(batch)
+            if page >= result.get("totalPages", 1):
+                return items
+            if not batch:
+                raise HTTPException(502, "Incomplete order child pagination")
+            page += 1
 
     async def list_orders(
         self,
@@ -54,21 +81,8 @@ class TransactionalService:
         if site_id:
             parts.append(f"site_id={filter_value(site_id)}")
         order = await pb.find_one_by_filter("orders", " && ".join(parts), token=token)
-        items_result = await pb.list_records(
-            "order_items",
-            token=token,
-            filter=f"order_id={filter_value(order_id)}",
-            sort="created_at",
-            per_page=100,
-        )
-        payments_result = await pb.list_records(
-            "payments",
-            token=token,
-            filter=f"order_id={filter_value(order_id)}",
-            sort="-created_at",
-            per_page=100,
-        )
-        item_records = items_result.get("items", [])
+        item_records = await self._order_children(pb, token, "order_items", order_id)
+        payment_records = await self._order_children(pb, token, "payments", order_id)
         property_map = await self._properties(
             pb,
             token,
@@ -104,7 +118,7 @@ class TransactionalService:
             "notes": order.get("notes"),
             "metadata": order.get("metadata"),
             "items": items,
-            "payments": payments_result.get("items", []),
+            "payments": payment_records,
         }
 
     async def create_order(
@@ -115,7 +129,13 @@ class TransactionalService:
         data: dict[str, Any],
         user_id: str | None = None,
     ) -> dict[str, Any]:
+        data = dict(data)
         items = data.pop("items")
+        if not items:
+            raise HTTPException(422, "An order requires at least one item")
+        for item in items:
+            finite_decimal(item["quantity"], positive=True)
+            finite_decimal(item["unit_price"])
         properties = await self._properties(
             pb, token, site_id, [item["property_id"] for item in items]
         )
@@ -173,6 +193,8 @@ class TransactionalService:
             f'order_id={filter_value(order_id)} && deleted_at=""{scope}',
             token=token,
         )
+        if "status" in data:
+            validate_transition(order.get("status"), data["status"])
         allowed = {
             "status",
             "customer_name",
@@ -200,6 +222,8 @@ class TransactionalService:
         order = await pb.find_one_by_filter(
             "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
+        if order.get("status") not in {"pending", "cancelled"}:
+            raise HTTPException(409, "Paid or fulfilled orders cannot be deleted")
         await pb.update_record(
             "orders",
             order["id"],
@@ -219,6 +243,9 @@ class TransactionalService:
         order = await pb.find_one_by_filter(
             "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
+        require_editable(order)
+        finite_decimal(data["quantity"], positive=True)
+        finite_decimal(data["unit_price"])
         properties = await self._properties(
             pb, token, order["site_id"], [data["property_id"]]
         )
@@ -245,11 +272,12 @@ class TransactionalService:
         item = await pb.find_one_by_filter(
             "order_items", f"item_id={filter_value(item_id)}", token=token
         )
-        await pb.find_one_by_filter(
+        order = await pb.find_one_by_filter(
             "orders",
             f'order_id={filter_value(item["order_id"])} && deleted_at=""',
             token=token,
         )
+        require_editable(order)
         await pb.delete_record("order_items", item["id"], token=token)
 
     async def list_payments(
@@ -258,14 +286,7 @@ class TransactionalService:
         await pb.find_one_by_filter(
             "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
-        result = await pb.list_records(
-            "payments",
-            token=token,
-            filter=f"order_id={filter_value(order_id)}",
-            sort="-created_at",
-            per_page=100,
-        )
-        return result.get("items", [])
+        return await self._order_children(pb, token, "payments", order_id)
 
     async def add_payment(
         self,
@@ -278,6 +299,11 @@ class TransactionalService:
         order = await pb.find_one_by_filter(
             "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
+        if order.get("status") not in {"pending", "paid"}:
+            raise HTTPException(409, "Order does not accept payments")
+        finite_decimal(data["amount"], positive=True)
+        if data.get("currency", "USD") != order.get("currency"):
+            raise HTTPException(422, "Payment currency must match the order")
         return await pb.create_record(
             "payments",
             {

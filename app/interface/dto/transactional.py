@@ -65,8 +65,8 @@ class OrderDetail(OrderSummary):
 
 class OrderItemCreate(BaseModel):
     property_id: str
-    quantity: float = Field(gt=0)
-    unit_price: float = Field(ge=0)
+    quantity: float = Field(gt=0, allow_inf_nan=False)
+    unit_price: float = Field(ge=0, allow_inf_nan=False)
     variation: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
 
@@ -92,7 +92,7 @@ class OrderUpdateRequest(BaseModel):
 
 class PaymentCreateRequest(BaseModel):
     method: str
-    amount: float = Field(gt=0)
+    amount: float = Field(gt=0, allow_inf_nan=False)
     currency: str = "USD"
     status: str = "pending"
     transaction_ref: str | None = None
