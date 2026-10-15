@@ -4,7 +4,6 @@ from app.application.services.transactional_service import TransactionalService
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     TenantContext,
-    get_pocketbase_client,
     get_tenant_context,
 )
 from app.interface.dto.transactional import (
@@ -30,6 +29,9 @@ from app.interface.dto.transactional import (
 )
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import validate_id
+from app.interface.transaction_dependencies import (
+    get_transaction_client as get_pocketbase_client,
+)
 
 router = APIRouter()
 service = TransactionalService()

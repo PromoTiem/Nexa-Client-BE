@@ -24,6 +24,7 @@ from app.interface.dependencies import (
     get_tenant_context,
 )
 from app.interface.routes.transactional import router
+from app.interface.transaction_dependencies import get_transaction_client
 from scripts.migrate_transactional import COLLECTIONS, schema_for
 
 
@@ -163,6 +164,7 @@ async def flow(database):
     app.include_router(router)
     app.dependency_overrides[get_tenant_context] = lambda: ctx
     app.dependency_overrides[get_pocketbase_client] = lambda: pb
+    app.dependency_overrides[get_transaction_client] = lambda: pb
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://flow",

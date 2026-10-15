@@ -71,7 +71,24 @@ async def create_booking(
             },
         )
 
-        await _dual_write_booking(pb, created, values, service_id)
+        from app.application.services.legacy_booking_service import convert_submission
+
+        try:
+            outcome = await convert_submission(
+                pb, pb._static_token, created, source="website", apply=True
+            )
+            logger.info(
+                "booking conversion",
+                extra={"source_id": created.get("property_id"), "outcome": outcome},
+            )
+        except Exception as exc:
+            logger.warning(
+                "booking conversion deferred",
+                extra={
+                    "source_id": created.get("property_id"),
+                    "error_type": type(exc).__name__,
+                },
+            )
         return created
 
 
