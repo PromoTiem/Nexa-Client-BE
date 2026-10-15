@@ -17,6 +17,7 @@ from app.interface.dto.transactional import (
     BookingListResponse,
     BookingSummary,
     BookingUpdateRequest,
+    FakePaymentRequest,
     OrderCreateRequest,
     OrderDetail,
     OrderItemCreate,
@@ -66,7 +67,7 @@ async def list_orders(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> OrderListResponse:
-    enforce_permission(ctx.auth, Permission.SITES_LIST)
+    enforce_permission(ctx.auth, Permission.ORDERS_VIEW)
     validate_id(site_id, "site_id")
     await ctx.enforce_site(pb, site_id)
     result = await service.list_orders(
@@ -95,7 +96,7 @@ async def get_order(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> OrderDetail:
-    enforce_permission(ctx.auth, Permission.SITES_LIST)
+    enforce_permission(ctx.auth, Permission.ORDERS_VIEW)
     validate_id(order_id, "order_id")
     result = await service.get_order(pb, ctx.token, order_id)
     await ctx.enforce_site(pb, result["site_id"])
@@ -197,6 +198,25 @@ async def list_payments(
     ]
 
 
+@router.post("/orders/{order_id}/fake-payment", response_model=PaymentResponse)
+async def fake_payment(
+    order_id: str,
+    body: FakePaymentRequest,
+    ctx: TenantContext = Depends(get_tenant_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+) -> PaymentResponse:
+    """Simulate a full payment without charging money; retries reuse the same key."""
+    enforce_permission(ctx.auth, Permission.ORDERS_MANAGE)
+    validate_id(order_id, "order_id")
+    order = await service.get_order(pb, ctx.token, order_id)
+    await ctx.enforce_site(pb, order["site_id"])
+    return PaymentResponse(
+        **await service.fake_payment(
+            pb, ctx.token, order_id, body.idempotency_key, _user_id(ctx)
+        )
+    )
+
+
 @router.delete("/orders/{order_id}", status_code=204)
 async def delete_order(
     order_id: str,
@@ -239,7 +259,7 @@ async def list_bookings(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BookingListResponse:
-    enforce_permission(ctx.auth, Permission.SITES_LIST)
+    enforce_permission(ctx.auth, Permission.BOOKINGS_VIEW)
     validate_id(site_id, "site_id")
     await ctx.enforce_site(pb, site_id)
     result = await service.list_bookings(
@@ -277,7 +297,7 @@ async def get_booking(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> BookingDetail:
-    enforce_permission(ctx.auth, Permission.SITES_LIST)
+    enforce_permission(ctx.auth, Permission.BOOKINGS_VIEW)
     validate_id(booking_id, "booking_id")
     result = await service.get_booking(pb, ctx.token, booking_id)
     await ctx.enforce_site(pb, result["site_id"])

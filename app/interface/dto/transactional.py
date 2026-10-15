@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.interface.dto.common import PaginatedResponse
 
@@ -75,7 +75,7 @@ class OrderCreateRequest(BaseModel):
     customer_name: str | None = None
     customer_email: str | None = None
     customer_phone: str | None = None
-    currency: str = "USD"
+    currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
     notes: str | None = None
     metadata: dict[str, Any] | None = None
     items: list[OrderItemCreate] = Field(min_length=1)
@@ -98,6 +98,12 @@ class PaymentCreateRequest(BaseModel):
     transaction_ref: str | None = None
     notes: str | None = None
     metadata: dict[str, Any] | None = None
+
+
+class FakePaymentRequest(BaseModel):
+    idempotency_key: str = Field(
+        min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"
+    )
 
 
 class BookingSummary(BaseModel):
@@ -127,7 +133,7 @@ class BookingDetail(BookingSummary):
 class BookingCreateRequest(BaseModel):
     property_id: str
     customer_name: str = Field(min_length=1)
-    customer_email: str = Field(min_length=1)
+    customer_email: EmailStr
     customer_phone: str | None = None
     date: str
     start_time: str
@@ -140,7 +146,7 @@ class BookingCreateRequest(BaseModel):
 class BookingUpdateRequest(BaseModel):
     status: BookingStatus | None = None
     customer_name: str | None = None
-    customer_email: str | None = None
+    customer_email: EmailStr | None = None
     customer_phone: str | None = None
     date: str | None = None
     start_time: str | None = None
@@ -148,6 +154,21 @@ class BookingUpdateRequest(BaseModel):
     notes: str | None = None
     fields: list[dict[str, Any]] | None = None
     metadata: dict[str, Any] | None = None
+
+    @field_validator(
+        "status",
+        "customer_name",
+        "customer_email",
+        "date",
+        "start_time",
+        "end_time",
+        "fields",
+    )
+    @classmethod
+    def required_when_present(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise ValueError("Field cannot be null or empty when supplied")
+        return value
 
 
 class AvailabilityResponse(BaseModel):

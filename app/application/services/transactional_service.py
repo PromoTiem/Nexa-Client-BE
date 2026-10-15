@@ -1,12 +1,17 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
 
+from app.application.services import booking_policy
 from app.application.services.order_policy import (
     finite_decimal,
+    line_total,
+    money,
     require_editable,
+    serialize_order,
     validate_transition,
 )
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -144,18 +149,18 @@ class TransactionalService:
                 status_code=422, detail="All order properties must belong to the site"
             )
         order_id = f"order_{uuid4().hex}"
-        total = sum(
-            float(item["quantity"]) * float(item["unit_price"]) for item in items
-        )
-        await pb.create_record(
+        total = money(sum((line_total(item) for item in items), Decimal(0)))
+        # Keep an incomplete order hidden until every requested item is persisted.
+        draft_at = datetime.now(UTC).isoformat()
+        order = await pb.create_record(
             "orders",
             {
+                **data,
                 "order_id": order_id,
                 "site_id": site_id,
                 "status": "pending",
                 "total": total,
-                "deleted_at": "",
-                **data,
+                "deleted_at": draft_at,
             },
             token=token,
             user_id=user_id,
@@ -169,15 +174,19 @@ class TransactionalService:
                     "property_id": item["property_id"],
                     "quantity": item["quantity"],
                     "unit_price": item["unit_price"],
-                    "total_price": float(item["quantity"]) * float(item["unit_price"]),
+                    "total_price": money(line_total(item)),
                     "variation": item.get("variation"),
                     "metadata": item.get("metadata"),
                 },
                 token=token,
                 user_id=user_id,
             )
+        await pb.update_record(
+            "orders", order["id"], {"deleted_at": ""}, token=token, user_id=user_id
+        )
         return await self.get_order(pb, token, order_id, site_id)
 
+    @serialize_order
     async def update_order(
         self,
         pb: PocketBaseClient,
@@ -195,6 +204,30 @@ class TransactionalService:
         )
         if "status" in data:
             validate_transition(order.get("status"), data["status"])
+            if data["status"] == "paid" and order["status"] != "paid":
+                raise HTTPException(409, "Record payment before marking an order paid")
+            if data["status"] == "cancelled" and order["status"] == "paid":
+                payments = await self._order_children(pb, token, "payments", order_id)
+                if any(
+                    payment.get("method") != "fake"
+                    and payment.get("status") == "completed"
+                    for payment in payments
+                ):
+                    raise HTTPException(
+                        409, "Resolve real payment refunds before cancellation"
+                    )
+                for payment in payments:
+                    if (
+                        payment.get("method") == "fake"
+                        and payment.get("status") == "completed"
+                    ):
+                        await pb.update_record(
+                            "payments",
+                            payment["id"],
+                            {"status": "cancelled"},
+                            token=token,
+                            user_id=user_id,
+                        )
         allowed = {
             "status",
             "customer_name",
@@ -212,6 +245,7 @@ class TransactionalService:
         )
         return await self.get_order(pb, token, order_id, order["site_id"])
 
+    @serialize_order
     async def delete_order(
         self,
         pb: PocketBaseClient,
@@ -224,6 +258,7 @@ class TransactionalService:
         )
         if order.get("status") not in {"pending", "cancelled"}:
             raise HTTPException(409, "Paid or fulfilled orders cannot be deleted")
+        await self._require_unpaid(pb, token, order_id)
         await pb.update_record(
             "orders",
             order["id"],
@@ -232,6 +267,7 @@ class TransactionalService:
             user_id=user_id,
         )
 
+    @serialize_order
     async def add_order_item(
         self,
         pb: PocketBaseClient,
@@ -244,6 +280,7 @@ class TransactionalService:
             "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
         require_editable(order)
+        await self._require_unpaid(pb, token, order_id)
         finite_decimal(data["quantity"], positive=True)
         finite_decimal(data["unit_price"])
         properties = await self._properties(
@@ -258,13 +295,31 @@ class TransactionalService:
             {
                 "item_id": f"item_{uuid4().hex}",
                 "order_id": order_id,
-                "total_price": float(data["quantity"]) * float(data["unit_price"]),
                 **data,
+                "total_price": money(line_total(data)),
             },
             token=token,
             user_id=user_id,
         )
+        await self._refresh_order_total(pb, token, order, user_id)
         return item
+
+    async def _refresh_order_total(self, pb, token, order, user_id=None):
+        items = await self._order_children(pb, token, "order_items", order["order_id"])
+        total = money(sum((line_total(item) for item in items), Decimal(0)))
+        await pb.update_record(
+            "orders", order["id"], {"total": total}, token=token, user_id=user_id
+        )
+        return total
+
+    async def _require_unpaid(self, pb, token, order_id):
+        payments = await self._order_children(pb, token, "payments", order_id)
+        if any(
+            payment.get("status") not in {"failed", "cancelled"} for payment in payments
+        ):
+            raise HTTPException(
+                409, "Resolve the existing payment before editing order items"
+            )
 
     async def delete_order_item(
         self, pb: PocketBaseClient, token: str, item_id: str, user_id: str | None = None
@@ -272,13 +327,20 @@ class TransactionalService:
         item = await pb.find_one_by_filter(
             "order_items", f"item_id={filter_value(item_id)}", token=token
         )
+        await self._delete_order_item(pb, token, item["order_id"], item, user_id)
+
+    @serialize_order
+    async def _delete_order_item(self, pb, token, order_id, item, user_id=None):
         order = await pb.find_one_by_filter(
-            "orders",
-            f'order_id={filter_value(item["order_id"])} && deleted_at=""',
-            token=token,
+            "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
         require_editable(order)
+        await self._require_unpaid(pb, token, order_id)
+        items = await self._order_children(pb, token, "order_items", order_id)
+        if len(items) <= 1:
+            raise HTTPException(409, "An order must retain at least one item")
         await pb.delete_record("order_items", item["id"], token=token)
+        await self._refresh_order_total(pb, token, order, user_id)
 
     async def list_payments(
         self, pb: PocketBaseClient, token: str, order_id: str
@@ -288,6 +350,7 @@ class TransactionalService:
         )
         return await self._order_children(pb, token, "payments", order_id)
 
+    @serialize_order
     async def add_payment(
         self,
         pb: PocketBaseClient,
@@ -304,6 +367,12 @@ class TransactionalService:
         finite_decimal(data["amount"], positive=True)
         if data.get("currency", "USD") != order.get("currency"):
             raise HTTPException(422, "Payment currency must match the order")
+        if data.get("method") == "fake" or (
+            data.get("transaction_ref") or ""
+        ).startswith("fake:"):
+            raise HTTPException(
+                422, "Use the fake-payment endpoint for simulated checkout"
+            )
         return await pb.create_record(
             "payments",
             {
@@ -314,6 +383,72 @@ class TransactionalService:
             token=token,
             user_id=user_id,
         )
+
+    @serialize_order
+    async def fake_payment(self, pb, token, order_id, idempotency_key, user_id=None):
+        """Record a simulated full payment; no gateway or real charge is invoked."""
+        order = await pb.find_one_by_filter(
+            "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
+        )
+        payments = await self._order_children(pb, token, "payments", order_id)
+        reference = "fake:" + idempotency_key
+        existing = next(
+            (
+                payment
+                for payment in payments
+                if payment.get("transaction_ref") == reference
+            ),
+            None,
+        )
+        if existing is not None:
+            if existing.get("method") != "fake" or existing.get("status") not in {
+                "completed",
+                "cancelled",
+            }:
+                raise HTTPException(
+                    409, "Idempotency key belongs to a different payment"
+                )
+            if order["status"] == "pending" and existing["status"] == "completed":
+                await pb.update_record(
+                    "orders",
+                    order["id"],
+                    {"status": "paid"},
+                    token=token,
+                    user_id=user_id,
+                )
+            return existing
+        require_editable(order)
+        if any(
+            payment.get("status") not in {"failed", "cancelled"} for payment in payments
+        ):
+            raise HTTPException(
+                409, "Order already has a payment; resolve it before fake checkout"
+            )
+        items = await self._order_children(pb, token, "order_items", order_id)
+        if not items:
+            raise HTTPException(409, "Cannot pay an empty order")
+        total = await self._refresh_order_total(pb, token, order, user_id)
+        payment = await pb.create_record(
+            "payments",
+            {
+                "payment_id": f"payment_{uuid4().hex}",
+                "order_id": order_id,
+                "method": "fake",
+                "amount": total,
+                "currency": order["currency"],
+                "status": "completed",
+                "transaction_ref": reference,
+                "metadata": {"simulated": True, "provider": "nexa-demo"},
+                "notes": "Simulated payment only; no money was charged.",
+            },
+            token=token,
+            user_id=user_id,
+        )
+        # A retry with the same key repairs this update if it fails after creation.
+        await pb.update_record(
+            "orders", order["id"], {"status": "paid"}, token=token, user_id=user_id
+        )
+        return payment
 
     async def list_bookings(
         self,
@@ -383,6 +518,82 @@ class TransactionalService:
             ),
         }
 
+    async def _booking_slot(self, pb, token, site_id, data, booking_id=None):
+        day = booking_policy.booking_date(data.get("date"))
+        start, end = booking_policy.interval(data)
+        prop = await self._properties(pb, token, site_id, [data["property_id"]])
+        selected = prop.get(data["property_id"], {})
+        if (
+            selected.get("type") != "spa_service"
+            or selected.get("status") != "published"
+        ):
+            raise HTTPException(
+                422, "Booking requires a published spa_service on the site"
+            )
+        slots = await self._all_records(
+            pb,
+            token,
+            "availability",
+            f"site_id={filter_value(site_id)} && property_id={filter_value(data['property_id'])}",
+        )
+        if not slots:
+            return  # Manual scheduling remains available until weekly hours are configured.
+        candidates = [
+            slot
+            for slot in slots
+            if slot.get("is_active")
+            and slot.get("day_of_week") == booking_policy.DAYS[day.weekday()]
+            and booking_policy.minutes(slot["start_time"]) <= start
+            and booking_policy.minutes(slot["end_time"]) >= end
+        ]
+        if not candidates:
+            raise HTTPException(409, "Requested booking is outside active availability")
+        existing = await self._all_records(
+            pb,
+            token,
+            "bookings",
+            f'site_id={filter_value(site_id)} && property_id={filter_value(data["property_id"])} && deleted_at="" && (status="pending" || status="confirmed")',
+        )
+        events = []
+        for other in existing:
+            if (
+                other.get("booking_id") == booking_id
+                or booking_policy.booking_date(other["date"]) != day
+            ):
+                continue
+            other_start, other_end = booking_policy.interval(other)
+            if other_start < end and other_end > start:
+                events.extend([(max(start, other_start), 1), (min(end, other_end), -1)])
+        concurrent = peak = 0
+        for _, delta in sorted(events):
+            concurrent += delta
+            peak = max(peak, concurrent)
+        if not any(
+            slot.get("max_bookings", 0) == 0 or peak < slot["max_bookings"]
+            for slot in candidates
+        ):
+            raise HTTPException(409, "Requested booking slot is full")
+
+    async def _all_records(self, pb, token, collection, filter_expr):
+        records = []
+        page = 1
+        while True:
+            result = await pb.list_records(
+                collection,
+                token=token,
+                filter=filter_expr,
+                sort="id",
+                page=page,
+                per_page=100,
+            )
+            records.extend(result.get("items", []))
+            if page >= result.get("totalPages", 1):
+                return records
+            if not result.get("items"):
+                raise HTTPException(502, "Incomplete pagination")
+            page += 1
+
+    @booking_policy.serialize_schedule
     async def create_booking(
         self,
         pb: PocketBaseClient,
@@ -391,28 +602,24 @@ class TransactionalService:
         data: dict[str, Any],
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        property_id = data["property_id"]
-        prop = await self._properties(pb, token, site_id, [property_id])
-        if property_id not in prop or prop[property_id].get("type") != "spa_service":
-            raise HTTPException(
-                status_code=422,
-                detail="Booking property must be a spa_service on the site",
-            )
+        await self._booking_slot(pb, token, site_id, data)
+        data = {**data, "date": booking_policy.booking_date(data["date"]).isoformat()}
         booking_id = f"booking_{uuid4().hex}"
         await pb.create_record(
             "bookings",
             {
                 "booking_id": booking_id,
                 "site_id": site_id,
+                **data,
                 "status": "pending",
                 "deleted_at": "",
-                **data,
             },
             token=token,
             user_id=user_id,
         )
         return await self.get_booking(pb, token, booking_id, site_id)
 
+    @booking_policy.serialize_schedule
     async def update_booking(
         self,
         pb: PocketBaseClient,
@@ -428,6 +635,22 @@ class TransactionalService:
             f'booking_id={filter_value(booking_id)} && deleted_at=""{scope}',
             token=token,
         )
+        if "status" in data:
+            booking_policy.validate_status(booking.get("status"), data["status"])
+        schedule_fields = {"date", "start_time", "end_time", "property_id"}
+        if schedule_fields.intersection(data) and booking.get("status") in {
+            "completed",
+            "cancelled",
+        }:
+            raise HTTPException(409, "Terminal bookings cannot be rescheduled")
+        merged = {**booking, **data}
+        if merged.get("status") in {"pending", "confirmed"}:
+            await self._booking_slot(pb, token, booking["site_id"], merged, booking_id)
+        if "date" in data:
+            data = {
+                **data,
+                "date": booking_policy.booking_date(data["date"]).isoformat(),
+            }
         if "property_id" in data:
             prop = await self._properties(
                 pb, token, booking["site_id"], [data["property_id"]]
@@ -445,6 +668,7 @@ class TransactionalService:
         )
         return await self.get_booking(pb, token, booking_id, booking["site_id"])
 
+    @booking_policy.serialize_schedule
     async def delete_booking(
         self,
         pb: PocketBaseClient,
@@ -457,6 +681,11 @@ class TransactionalService:
             f'booking_id={filter_value(booking_id)} && deleted_at=""',
             token=token,
         )
+        if booking.get("status") not in {"pending", "cancelled"}:
+            raise HTTPException(
+                409,
+                "Cancel a confirmed booking before deleting it; completed history is retained",
+            )
         await pb.update_record(
             "bookings",
             booking["id"],
@@ -482,6 +711,7 @@ class TransactionalService:
             per_page=params.get("per_page", 50),
         )
 
+    @booking_policy.serialize_schedule
     async def create_availability(
         self,
         pb: PocketBaseClient,
@@ -490,6 +720,7 @@ class TransactionalService:
         data: dict[str, Any],
         user_id: str | None = None,
     ) -> dict[str, Any]:
+        booking_policy.validate_availability(data)
         properties = await self._properties(pb, token, site_id, [data["property_id"]])
         if (
             data["property_id"] not in properties
@@ -510,6 +741,7 @@ class TransactionalService:
             user_id=user_id,
         )
 
+    @booking_policy.serialize_schedule
     async def update_availability(
         self,
         pb: PocketBaseClient,
@@ -523,6 +755,7 @@ class TransactionalService:
             f"availability_id={filter_value(availability_id)}",
             token=token,
         )
+        booking_policy.validate_availability({**record, **data})
         if "property_id" in data:
             properties = await self._properties(
                 pb, token, record["site_id"], [data["property_id"]]
@@ -539,6 +772,7 @@ class TransactionalService:
             "availability", record["id"], data, token=token, user_id=user_id
         )
 
+    @booking_policy.serialize_schedule
     async def delete_availability(
         self, pb: PocketBaseClient, token: str, availability_id: str
     ) -> None:
@@ -555,11 +789,18 @@ class TransactionalService:
         ids = sorted({value for value in property_ids if value})
         if not ids:
             return {}
-        clauses = " || ".join(f"property_id={filter_value(value)}" for value in ids)
-        result = await pb.list_records(
-            "properties",
-            token=token,
-            filter=f'site_id={filter_value(site_id)} && ({clauses}) && deleted_at=""',
-            per_page=min(len(ids), 100),
-        )
-        return {record["property_id"]: record for record in result.get("items", [])}
+        records = []
+        for offset in range(0, len(ids), 100):
+            clauses = " || ".join(
+                f"property_id={filter_value(value)}"
+                for value in ids[offset : offset + 100]
+            )
+            records.extend(
+                await self._all_records(
+                    pb,
+                    token,
+                    "properties",
+                    f'site_id={filter_value(site_id)} && ({clauses}) && deleted_at=""',
+                )
+            )
+        return {record["property_id"]: record for record in records}

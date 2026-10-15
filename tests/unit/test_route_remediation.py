@@ -516,7 +516,8 @@ def test_openapi_retains_routes_and_valid_path_parameters():
     app = FastAPI()
     app.include_router(router)
     paths = app.openapi()["paths"]
-    assert sum(len(methods) for methods in paths.values()) == 90
+    assert sum(len(methods) for methods in paths.values()) == 91
+    assert "post" in paths["/orders/{order_id}/fake-payment"]
     assert {"get", "post"} <= set(paths["/sites/{site_id}/orders"])
     assert {"get", "post"} <= set(paths["/sites/{site_id}/bookings"])
     for path, methods in paths.items():

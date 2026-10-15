@@ -1,9 +1,13 @@
 """Order state and finite-number validation shared by transaction commands."""
 
 from decimal import Decimal, InvalidOperation
+from functools import wraps
+from inspect import signature
 from typing import Any
 
 from fastapi import HTTPException
+
+from app.infrastructure.operation_lock import operation_lock
 
 TRANSITIONS = {
     "pending": {"paid", "cancelled"},
@@ -35,3 +39,31 @@ def finite_decimal(value: Any, *, positive: bool = False) -> Decimal:
     if not number.is_finite() or number < 0 or (positive and number == 0):
         raise HTTPException(422, "Invalid monetary value or quantity")
     return number
+
+
+def money(value: Any) -> float:
+    amount = finite_decimal(value)
+    if amount > Decimal("1000000000000"):
+        raise HTTPException(422, "Amount exceeds supported limit")
+    return float(amount)
+
+
+def line_total(item: dict[str, Any]) -> Decimal:
+    quantity = finite_decimal(item["quantity"], positive=True)
+    price = finite_decimal(item["unit_price"])
+    total = quantity * price
+    money(total)
+    return total
+
+
+def serialize_order(method):
+    """Coordinate API mutations of an order on the shared application host."""
+    parameters = signature(method)
+
+    @wraps(method)
+    async def wrapped(*args, **kwargs):
+        bound = parameters.bind(*args, **kwargs).arguments
+        async with operation_lock("order:" + bound["order_id"]):
+            return await method(*args, **kwargs)
+
+    return wrapped
