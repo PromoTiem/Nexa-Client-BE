@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.interface.dependencies import get_pocketbase_client, get_tenant_context
 from app.interface.routes import build, site
+from app.interface.site_dependencies import get_site_management_client
 from tests.unit.test_retained_consumer import context
 
 
@@ -16,6 +17,7 @@ def boundary_api():
     app.include_router(build.router, prefix="/builds")
     app.include_router(site.router, prefix="/sites")
     app.dependency_overrides[get_pocketbase_client] = lambda: pb
+    app.dependency_overrides[get_site_management_client] = lambda: pb
     app.dependency_overrides[get_tenant_context] = context
     return app, pb
 

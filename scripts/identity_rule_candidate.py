@@ -21,7 +21,7 @@ def candidate(schema):
                 "is_superuser",
                 "verified",
                 "emailVisibility",
-                "metadata",
+                "is_deleted",
             )
         )
         result.update(

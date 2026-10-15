@@ -67,3 +67,19 @@ tokens, order creation recovery, capacity and profile-rule checks.
 
 Remaining limitations: retries without keys can still duplicate item additions;
 old unkeyed drafts need operator reconciliation. No production changes.
+
+## Account management compatibility follow-up
+
+Local candidate adds `AccountGateway` and switches tenant-admin user list,
+create, detail, update and soft-delete routes to it. Self-service profile and
+password routes retain caller credentials. Gateway checks active account,
+tenant, lower-role hierarchy, protected field allowlists and authenticated
+actor attribution before using server persistence credentials.
+
+405 unit tests pass. A disposable ordinary-user identity test additionally
+verifies server-mediated creation/deactivation under locked direct user writes.
+These additions are not committed or deployed yet. Remaining before rule rollout:
+site write gateway, full login/password/profile tests (including existing profile
+metadata compatibility), actual user status/schema parity, and migration/rollback
+acceptance. The rule proposal still blocks profile metadata changes permitted
+by the current DTO; resolve that contract before applying rules.
