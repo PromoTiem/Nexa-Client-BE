@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shutil
@@ -319,7 +320,20 @@ async def deploy_site(
 
         try:
             await add_custom_domain(project_name, base_domain, cf)
-            custom_domain = base_domain
+            # Creation acknowledges configuration, not certificate activation.
+            # Bound polling so a pending domain cannot silently report live.
+            for attempt in range(6):
+                domain = await cf.get_domain(project_name, base_domain)
+                if domain.get("result", {}).get("status") == "active":
+                    custom_domain = base_domain
+                    break
+                if attempt < 5:
+                    await asyncio.sleep(2)
+            if custom_domain is None:
+                domain_setup_failed = True
+                logger.warning(
+                    "custom domain activation pending", extra={"domain": base_domain}
+                )
         except Exception as e:
             domain_setup_failed = True
             logger.warning(

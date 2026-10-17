@@ -1,5 +1,20 @@
 # Coordinated acceptance refresh
 
+## Latest publication and readiness work
+
+- Hook `9a812c5` published in Nexa-Pocket draft PR #3.
+- Admin harness `1b5ffaf` published; original 24 cases pass against client
+  `8871f2b`. Client process-lock additions published as `9a6fa5e`.
+- Local domain readiness change polls Cloudflare domain status six times with
+  two-second spacing and does not declare successful binding while pending.
+  433 unit tests pass including pending and eventually-active cases. This is
+  control-plane activation only, not proof of public content, DNS convergence
+  or TLS readiness. Deployed on 2026-10-17: the synthetic serve attempt returned
+  a binding failure while Cloudflare reported pending; test DNS/binding cleaned.
+  Public readiness remains unresolved, not established by this guard.
+- Actual hook-to-backend callback integration and production rule rollout are
+  still outstanding. No production changes in this batch.
+
 Admin baseline: `dfa33065eeb8be2582ccfb50c7a207f50a838376` in
 `Nexa-BE-callback-review`, with a local harness-only dependency override patch.
 Client baseline: clean `8871f2b2c01c9da2ce069ad281ac5b1c017edfc2`.
