@@ -404,3 +404,74 @@ async def test_failed_order_creation_stays_hidden(flow, monkeypatch):
     listed = await client.get(f"/sites/{site['site_id']}/orders")
     assert listed.status_code == 200, listed.text
     assert listed.json()["items"] == []
+
+
+async def test_order_retry_recovers_hidden_draft_without_duplicate_items(
+    flow, monkeypatch
+):
+    client, pb, _, site, prop = flow
+    original = pb.create_record
+    counter = 0
+
+    async def interrupted(collection, data, **kwargs):
+        nonlocal counter
+        if collection == "order_items":
+            counter += 1
+            if counter == 2:
+                raise HTTPException(503, "Injected second item failure")
+        return await original(collection, data, **kwargs)
+
+    monkeypatch.setattr(pb, "create_record", interrupted)
+    body = {
+        "idempotency_key": "recover_order_001",
+        "items": [
+            {"property_id": prop["property_id"], "quantity": 1, "unit_price": 10},
+            {"property_id": prop["property_id"], "quantity": 2, "unit_price": 5},
+        ],
+    }
+    path = f"/sites/{site['site_id']}/orders"
+    assert (await client.post(path, json=body)).status_code == 503
+    repaired = await client.post(path, json=body)
+    assert repaired.status_code == 201, repaired.text
+    assert len(repaired.json()["items"]) == 2
+    assert repaired.json()["total"] == 20
+    replay = await client.post(path, json=body)
+    assert replay.json()["order_id"] == repaired.json()["order_id"]
+    changed = {**body, "customer_name": "different"}
+    assert (await client.post(path, json=changed)).status_code == 409
+
+
+async def test_item_retry_repairs_parent_total_and_list_derives_actual_total(
+    flow, monkeypatch
+):
+    client, pb, _, site, prop = flow
+    order = await make_order(client, site, prop)
+    original = pb.update_record
+    failed = False
+
+    async def interrupted(collection, record_id, data, **kwargs):
+        nonlocal failed
+        if collection == "orders" and "total" in data and not failed:
+            failed = True
+            raise HTTPException(503, "Injected total update failure")
+        return await original(collection, record_id, data, **kwargs)
+
+    monkeypatch.setattr(pb, "update_record", interrupted)
+    path = f"/orders/{order['order_id']}/items"
+    body = {
+        "idempotency_key": "retry_item_001",
+        "property_id": prop["property_id"],
+        "quantity": 1,
+        "unit_price": 10,
+    }
+    assert (await client.post(path, json=body)).status_code == 503
+    listed = await client.get(f"/sites/{site['site_id']}/orders")
+    assert listed.json()["items"][0]["total"] == 10.3
+    repaired = await client.post(path, json=body)
+    assert repaired.status_code == 201, repaired.text
+    replay = await client.post(path, json=body)
+    assert replay.json()["item_id"] == repaired.json()["item_id"]
+    detail = (await client.get(f"/orders/{order['order_id']}")).json()
+    assert len(detail["items"]) == 2
+    assert detail["total"] == 10.3
+    assert (await client.post(path, json={**body, "quantity": 2})).status_code == 409

@@ -184,6 +184,23 @@ async def add_payment(
     )
 
 
+@router.delete("/orders/{order_id}/items/{item_id}", status_code=204)
+async def remove_order_item(
+    order_id: str,
+    item_id: str,
+    ctx: TenantContext = Depends(get_tenant_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+) -> Response:
+    """Retry-safe removal; an absent item never bypasses parent authorization."""
+    enforce_permission(ctx.auth, Permission.ORDERS_MANAGE)
+    validate_id(order_id, "order_id")
+    validate_id(item_id, "item_id")
+    order = await service.get_order(pb, ctx.token, order_id)
+    await ctx.enforce_site(pb, order["site_id"])
+    await service.remove_order_item(pb, ctx.token, order_id, item_id, _user_id(ctx))
+    return Response(status_code=204)
+
+
 @router.get("/orders/{order_id}/payments", response_model=list[PaymentResponse])
 async def list_payments(
     order_id: str,

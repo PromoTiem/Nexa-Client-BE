@@ -53,7 +53,11 @@ def test_request_dtos_reject_nonfinite_values(value):
 @pytest.mark.asyncio
 async def test_invalid_transition_makes_no_write():
     pb = AsyncMock()
-    pb.find_one_by_filter.return_value = {"id": "r", "status": "cancelled"}
+    pb.find_one_by_filter.return_value = {
+        "id": "r",
+        "site_id": "s",
+        "status": "cancelled",
+    }
     with pytest.raises(HTTPException) as error:
         await TransactionalService().update_order(
             pb, "token", "order_a", {"status": "paid"}
@@ -65,7 +69,11 @@ async def test_invalid_transition_makes_no_write():
 @pytest.mark.asyncio
 async def test_explicit_null_status_is_rejected():
     pb = AsyncMock()
-    pb.find_one_by_filter.return_value = {"id": "r", "status": "pending"}
+    pb.find_one_by_filter.return_value = {
+        "id": "r",
+        "site_id": "s",
+        "status": "pending",
+    }
     with pytest.raises(HTTPException) as error:
         await TransactionalService().update_order(pb, "token", "o", {"status": None})
     assert error.value.status_code == 422
@@ -76,7 +84,7 @@ async def test_explicit_null_status_is_rejected():
 @pytest.mark.parametrize("status", ["paid", "fulfilled", "cancelled"])
 async def test_settled_orders_reject_item_addition(status):
     pb = AsyncMock()
-    pb.find_one_by_filter.return_value = {"status": status}
+    pb.find_one_by_filter.return_value = {"site_id": "s", "status": status}
     with pytest.raises(HTTPException):
         await TransactionalService().add_order_item(
             pb,
@@ -96,6 +104,8 @@ async def test_settled_orders_reject_item_removal():
     pb = AsyncMock()
     pb.find_one_by_filter.side_effect = [
         {"id": "i", "order_id": "o"},
+        {"site_id": "s", "status": "paid"},
+        {"config": {}},
         {"status": "paid"},
     ]
     with pytest.raises(HTTPException):
@@ -107,7 +117,7 @@ async def test_settled_orders_reject_item_removal():
 @pytest.mark.parametrize("status", ["paid", "fulfilled"])
 async def test_preserves_financial_order_history(status):
     pb = AsyncMock()
-    pb.find_one_by_filter.return_value = {"status": status}
+    pb.find_one_by_filter.return_value = {"site_id": "s", "status": status}
     with pytest.raises(HTTPException):
         await TransactionalService().delete_order(pb, "token", "o")
     pb.update_record.assert_not_called()
@@ -116,7 +126,11 @@ async def test_preserves_financial_order_history(status):
 @pytest.mark.asyncio
 async def test_payment_currency_mismatch_has_no_side_effect():
     pb = AsyncMock()
-    pb.find_one_by_filter.return_value = {"status": "pending", "currency": "USD"}
+    pb.find_one_by_filter.return_value = {
+        "site_id": "s",
+        "status": "pending",
+        "currency": "USD",
+    }
     with pytest.raises(HTTPException) as error:
         await TransactionalService().add_payment(
             pb, "token", "o", {"amount": 1, "currency": "VND"}
@@ -154,6 +168,7 @@ async def test_pagination_gap_does_not_return_partial_success():
 @pytest.mark.asyncio
 async def test_create_rejects_invalid_numbers_without_mutating_request():
     pb = AsyncMock()
+    pb.find_one_by_filter.return_value = {"config": {}}
     data = {"items": [{"property_id": "p", "quantity": 1, "unit_price": -1}]}
     before = deepcopy(data)
     with pytest.raises(HTTPException):

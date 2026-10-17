@@ -40,6 +40,7 @@ from app.interface.route_helpers import (
     validate_id,
     validate_sort,
 )
+from app.interface.site_dependencies import get_site_management_client
 
 COLLECTION = "sites"
 # Query sites directly so lifecycle filtering happens before pagination.
@@ -113,7 +114,7 @@ async def list_sites(
 async def create_site(
     body: SiteCreateRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_site_management_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> SiteResponse:
     enforce_permission(ctx.auth, Permission.SITES_CREATE)
@@ -174,7 +175,7 @@ async def update_site(
     site_id: str,
     body: SiteUpdateRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_site_management_client),
 ) -> SiteResponse:
     async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
         enforce_permission(ctx.auth, Permission.SITES_UPDATE)
@@ -261,7 +262,7 @@ async def update_site(
 async def delete_site(
     site_id: str,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_site_management_client),
 ) -> Response:
     async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
         enforce_permission(ctx.auth, Permission.SITES_DELETE)

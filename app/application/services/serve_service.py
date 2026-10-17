@@ -343,17 +343,16 @@ async def _extract_static_files_from_storage(storage, image_key: str) -> dict:
     if not parsed:
         raise ValueError(f"invalid image key format: {image_key}")
     bucket = parsed.group(1)
-    prefix = parsed.group(2)
+    prefix = parsed.group(2).rstrip("/") + "/"
 
     objects = await storage.list_objects(bucket=bucket, prefix=prefix)
     files = {}
-    for obj in objects.get("Contents", []):
-        key = obj["Key"]
+    for key in objects:
         if key.endswith("/"):
             continue
         relative = key[len(prefix) :].lstrip("/")
         if not relative:
             continue
         obj_data = await storage.get_object(bucket=bucket, key=key)
-        files[relative] = obj_data["Body"].read()
+        files[relative] = obj_data
     return files

@@ -64,6 +64,9 @@ class OrderDetail(OrderSummary):
 
 
 class OrderItemCreate(BaseModel):
+    idempotency_key: str | None = Field(
+        default=None, min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"
+    )
     property_id: str
     quantity: float = Field(gt=0, allow_inf_nan=False)
     unit_price: float = Field(ge=0, allow_inf_nan=False)
@@ -72,6 +75,9 @@ class OrderItemCreate(BaseModel):
 
 
 class OrderCreateRequest(BaseModel):
+    idempotency_key: str | None = Field(
+        default=None, min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"
+    )
     customer_name: str | None = None
     customer_email: str | None = None
     customer_phone: str | None = None
