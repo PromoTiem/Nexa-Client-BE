@@ -2,6 +2,15 @@
 
 ## Latest publication and readiness work
 
+- Activation guard published as `f5f8359`; production source previously installed
+  matches this behavior. This does not establish domain readiness.
+- Added real disposable PocketBase cross-process retry acceptance: three spawned
+  processes invoke actual TransactionalService creation, item addition and fake
+  payment with shared keys. All return identical resource IDs; persisted results
+  are one order, two items total, one payment, total 10 and paid status. Targeted
+  test passed. Uses disposable administrator persistence credentials, not a
+  production workload or an authentication test.
+
 - Hook `9a812c5` published in Nexa-Pocket draft PR #3.
 - Admin harness `1b5ffaf` published; original 24 cases pass against client
   `8871f2b`. Client process-lock additions published as `9a6fa5e`.
