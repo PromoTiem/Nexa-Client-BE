@@ -32,6 +32,7 @@ from app.interface.route_helpers import (
     sanitize_filter_value,
     validate_id,
 )
+from app.interface.site_dependencies import get_serve_site_client
 
 COLLECTION = "sites"
 
@@ -56,7 +57,7 @@ async def patch_serve_status(
     site_id: str,
     body: ServeStatusPatchRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_serve_site_client),
 ) -> ServeStateResponse:
     async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
         enforce_permission(ctx.auth, Permission.SERVE_ACCESS)
@@ -77,7 +78,7 @@ async def patch_serve_status(
 async def serve_site(
     site_id: str,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_serve_site_client),
     cf: CloudflareClient = Depends(get_cloudflare_client),
     storage: StorageClient = Depends(get_storage_client),
 ) -> SiteServeResponse:
@@ -107,7 +108,7 @@ async def serve_site(
 async def stop_site(
     site_id: str,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_serve_site_client),
     cf: CloudflareClient = Depends(get_cloudflare_client),
 ) -> SiteStopResponse:
     async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):

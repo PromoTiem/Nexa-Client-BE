@@ -82,6 +82,7 @@ class AccountGateway:
             "active",
             "inactive",
             "suspended",
+            "pending",
         }:
             raise HTTPException(422, "Invalid account status")
         if "is_deleted" in data and (

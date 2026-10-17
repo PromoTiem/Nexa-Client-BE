@@ -2,6 +2,43 @@
 
 Local source follow-up to recovery PR #38. Not deployed.
 
+## Fresh schema parity findings and candidate
+
+Live inspection found users.status = active/inactive/pending, with no is_deleted
+field. API accepts suspended and soft-deletion writes is_deleted. Candidate DTO
+now accepts pending (authentication still rejects non-active states).
+`scripts/user_schema_parity.py` is a pure additive transformation: preserve
+existing field IDs and pending, append suspended, add optional boolean is_deleted,
+reject unknown types/status values for manual review. It has no live apply path.
+427 unit tests passed. Disposable PocketBase confirms repeat application,
+preserved pending users, persisted suspended/deleted state, and rule rollback
+without removing fields or losing upgraded data. Production not migrated.
+
+Admin writer inspection found the live build webhook still calls
+`_update_site_status()` using a static token that returned 401 on a superuser-only
+schema check. The existing `origin/fix/137-source-audit` candidate already changes
+that helper to a no-op: deployment state belongs to serve/stop, not build completion.
+Prefer reviewing/adopting that established correction rather than making the
+obsolete build-to-live projection operational. Admin source/runtime integration
+and complete build/serve/upload acceptance remain pending.
+
+## Serve/bucket writer follow-up
+
+Local candidate adds SiteWorkflowGateway with separate serve and bucket field
+allowlists. Serve mutation routes use the serve gateway; media/storage upload-URL
+routes use the bucket gateway. Other resource methods retain caller credentials.
+Each elevated site write checks active account, owner/admin/member role, parent
+tenant and site lifecycle. Bucket writes initialize only the canonical name and
+cannot replace an existing identity. Existing service-level transitions and
+route locks remain in place.
+
+422 unit tests pass. Disposable PocketBase acceptance confirms direct user site
+PATCH is denied while serve bookkeeping and canonical bucket initialization
+succeed through the gateway. This tests database persistence, not a real
+Cloudflare deployment or S3 upload. No production changes in this follow-up.
+Still required: inventory admin/backend-hook writers and exercise the complete
+serve/build/upload pipeline before applying production site-rule restrictions.
+
 ## Reset-mail test scope
 
 At user direction, reset-mail dispatch is mocked for now. Four HTTP contract
