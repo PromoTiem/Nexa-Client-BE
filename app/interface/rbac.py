@@ -49,6 +49,10 @@ class Permission(str, Enum):
     ANALYTICS_TRACK = "analytics:track"
     ANALYTICS_VIEW = "analytics:view"
     INSIGHTS_ACCESS = "insights:access"
+    ORDERS_VIEW = "orders:view"
+    ORDERS_MANAGE = "orders:manage"
+    BOOKINGS_VIEW = "bookings:view"
+    BOOKINGS_MANAGE = "bookings:manage"
 
 
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
@@ -82,6 +86,10 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.ANALYTICS_TRACK,
             Permission.ANALYTICS_VIEW,
             Permission.INSIGHTS_ACCESS,
+            Permission.ORDERS_VIEW,
+            Permission.ORDERS_MANAGE,
+            Permission.BOOKINGS_VIEW,
+            Permission.BOOKINGS_MANAGE,
         }
     ),
     UserRole.ADMIN: frozenset(
@@ -114,6 +122,10 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.ANALYTICS_TRACK,
             Permission.ANALYTICS_VIEW,
             Permission.INSIGHTS_ACCESS,
+            Permission.ORDERS_VIEW,
+            Permission.ORDERS_MANAGE,
+            Permission.BOOKINGS_VIEW,
+            Permission.BOOKINGS_MANAGE,
         }
     ),
     UserRole.MEMBER: frozenset(
@@ -138,6 +150,8 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.ANALYTICS_TRACK,
             Permission.ANALYTICS_VIEW,
             Permission.INSIGHTS_ACCESS,
+            Permission.ORDERS_VIEW,
+            Permission.BOOKINGS_VIEW,
         }
     ),
     UserRole.GUEST: frozenset(

@@ -23,6 +23,7 @@ from app.interface.dto.storage import (
 )
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import resolve_page_size, validate_id
+from app.interface.site_dependencies import get_bucket_site_client
 
 router = APIRouter()
 
@@ -46,7 +47,7 @@ def _record_to_response(record: dict[str, Any]) -> StorageFileResponse:
 async def create_upload_url(
     body: UploadUrlRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_bucket_site_client),
     service: StorageFileService = Depends(get_storage_file_service),
 ) -> UploadUrlResponse:
     enforce_permission(ctx.auth, Permission.STORAGE_ACCESS)

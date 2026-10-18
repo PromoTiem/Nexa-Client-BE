@@ -23,6 +23,7 @@ from app.interface.dto.media import (
 )
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import resolve_page_size, validate_id
+from app.interface.site_dependencies import get_bucket_site_client
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ def _record_to_response(record: dict[str, Any]) -> MediaResponse:
 async def create_upload_url(
     body: UploadUrlRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_bucket_site_client),
     service: MediaService = Depends(get_media_service),
 ) -> UploadUrlResponse:
     enforce_permission(ctx.auth, Permission.MEDIA_UPLOAD)
