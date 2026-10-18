@@ -1,5 +1,7 @@
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
@@ -66,7 +68,7 @@ class TransactionalService:
             parts.append(f"created_at>={filter_value(date_from)}")
         if date_to:
             parts.append(f"created_at<={filter_value(date_to)}")
-        return await pb.list_records(
+        result = await pb.list_records(
             "orders",
             token=token,
             filter=" && ".join(parts),
@@ -74,6 +76,23 @@ class TransactionalService:
             page=page,
             per_page=per_page,
         )
+        rows = result.get("items", [])
+        pending = [row for row in rows if row.get("status") == "pending"]
+        for offset in range(0, len(pending), 50):
+            batch = pending[offset : offset + 50]
+            query = " || ".join(
+                f"order_id={filter_value(row['order_id'])}" for row in batch
+            )
+            children = await self._all_records(pb, token, "order_items", query)
+            for row in batch:
+                items = [
+                    item for item in children if item["order_id"] == row["order_id"]
+                ]
+                row["total"] = money(
+                    sum((line_total(item) for item in items), Decimal(0))
+                )
+                row["item_count"] = len(items)
+        return result
 
     async def get_order(
         self,
@@ -115,7 +134,9 @@ class TransactionalService:
             "customer_email": order.get("customer_email"),
             "customer_phone": order.get("customer_phone"),
             "status": order.get("status", "pending"),
-            "total": order.get("total", 0),
+            "total": money(sum((line_total(item) for item in item_records), Decimal(0)))
+            if order.get("status") == "pending"
+            else order.get("total", 0),
             "currency": order.get("currency", "USD"),
             "item_count": len(items),
             "created_at": order.get("created_at"),
@@ -126,6 +147,7 @@ class TransactionalService:
             "payments": payment_records,
         }
 
+    @booking_policy.serialize_schedule
     async def create_order(
         self,
         pb: PocketBaseClient,
@@ -135,6 +157,10 @@ class TransactionalService:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         data = dict(data)
+        key = data.pop("idempotency_key", None)
+        fingerprint = sha256(
+            json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
         items = data.pop("items")
         if not items:
             raise HTTPException(422, "An order requires at least one item")
@@ -148,28 +174,56 @@ class TransactionalService:
             raise HTTPException(
                 status_code=422, detail="All order properties must belong to the site"
             )
-        order_id = f"order_{uuid4().hex}"
+        order_id = "order_" + (
+            sha256(f"{site_id}:{key}".encode()).hexdigest()[:32] if key else uuid4().hex
+        )
+        existing = await pb.list_records(
+            "orders",
+            token=token,
+            filter=f"order_id={filter_value(order_id)} && site_id={filter_value(site_id)}",
+            per_page=2,
+        )
+        order = next(iter(existing.get("items", [])), None)
+        if order:
+            state = (order.get("metadata") or {}).get("_creation", {})
+            if state.get("fingerprint") != fingerprint:
+                raise HTTPException(
+                    409, "Idempotency key was used with a different order"
+                )
+            if not order.get("deleted_at"):
+                return await self.get_order(pb, token, order_id, site_id)
+            if state.get("state") != "building":
+                raise HTTPException(409, "Deleted orders cannot be recreated")
         total = money(sum((line_total(item) for item in items), Decimal(0)))
         # Keep an incomplete order hidden until every requested item is persisted.
         draft_at = datetime.now(UTC).isoformat()
-        order = await pb.create_record(
-            "orders",
-            {
-                **data,
-                "order_id": order_id,
-                "site_id": site_id,
-                "status": "pending",
-                "total": total,
-                "deleted_at": draft_at,
-            },
-            token=token,
-            user_id=user_id,
-        )
-        for item in items:
+        if order is None:
+            order = await pb.create_record(
+                "orders",
+                {
+                    **data,
+                    "order_id": order_id,
+                    "site_id": site_id,
+                    "status": "pending",
+                    "total": total,
+                    "deleted_at": draft_at,
+                    "metadata": {
+                        **(data.get("metadata") or {}),
+                        "_creation": {"state": "building", "fingerprint": fingerprint},
+                    },
+                },
+                token=token,
+                user_id=user_id,
+            )
+        persisted = await self._order_children(pb, token, "order_items", order_id)
+        for index, item in enumerate(items):
+            item_id = "item_" + sha256(f"{order_id}:{index}".encode()).hexdigest()[:32]
+            if any(row.get("item_id") == item_id for row in persisted):
+                continue
             await pb.create_record(
                 "order_items",
                 {
-                    "item_id": f"item_{uuid4().hex}",
+                    "item_id": item_id,
                     "order_id": order_id,
                     "property_id": item["property_id"],
                     "quantity": item["quantity"],
@@ -182,7 +236,17 @@ class TransactionalService:
                 user_id=user_id,
             )
         await pb.update_record(
-            "orders", order["id"], {"deleted_at": ""}, token=token, user_id=user_id
+            "orders",
+            order["id"],
+            {
+                "deleted_at": "",
+                "metadata": {
+                    **(data.get("metadata") or {}),
+                    "_creation": {"state": "complete", "fingerprint": fingerprint},
+                },
+            },
+            token=token,
+            user_id=user_id,
         )
         return await self.get_order(pb, token, order_id, site_id)
 
@@ -206,7 +270,33 @@ class TransactionalService:
             validate_transition(order.get("status"), data["status"])
             if data["status"] == "paid" and order["status"] != "paid":
                 raise HTTPException(409, "Record payment before marking an order paid")
-            if data["status"] == "cancelled" and order["status"] == "paid":
+            if data["status"] == "fulfilled" and order["status"] != "fulfilled":
+                payments = await self._order_children(pb, token, "payments", order_id)
+                settled = [
+                    payment
+                    for payment in payments
+                    if payment.get("status") == "completed"
+                ]
+                total = finite_decimal(order.get("total"))
+                if not settled or any(
+                    payment.get("currency") != order.get("currency")
+                    for payment in settled
+                ):
+                    raise HTTPException(
+                        409, "Order payment requires reconciliation before fulfillment"
+                    )
+                received = sum(
+                    (finite_decimal(payment.get("amount")) for payment in settled),
+                    Decimal(0),
+                )
+                if received != total or any(
+                    payment.get("status") in {"pending", "refunded"}
+                    for payment in payments
+                ):
+                    raise HTTPException(
+                        409, "Order payment requires reconciliation before fulfillment"
+                    )
+            if data["status"] == "cancelled":
                 payments = await self._order_children(pb, token, "payments", order_id)
                 if any(
                     payment.get("method") != "fake"
@@ -236,6 +326,14 @@ class TransactionalService:
             "notes",
             "metadata",
         }
+        if "metadata" in data:
+            metadata = dict(data.get("metadata") or {})
+            if "_creation" in metadata:
+                raise HTTPException(422, "Order creation metadata is server-owned")
+            creation = (order.get("metadata") or {}).get("_creation")
+            if creation is not None:
+                metadata["_creation"] = creation
+            data = {**data, "metadata": metadata}
         await pb.update_record(
             "orders",
             order["id"],
@@ -276,11 +374,38 @@ class TransactionalService:
         data: dict[str, Any],
         user_id: str | None = None,
     ) -> dict[str, Any]:
+        data = dict(data)
+        key = data.pop("idempotency_key", None)
+        item_id = "item_" + (
+            sha256(f"{order_id}:add:{key}".encode()).hexdigest()[:32]
+            if key
+            else uuid4().hex
+        )
         order = await pb.find_one_by_filter(
             "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
         )
         require_editable(order)
         await self._require_unpaid(pb, token, order_id)
+        existing = await self._order_children(pb, token, "order_items", order_id)
+        match = next(
+            (item for item in existing if item.get("item_id") == item_id), None
+        )
+        if match:
+            if any(
+                match.get(field) != data.get(field)
+                for field in (
+                    "property_id",
+                    "quantity",
+                    "unit_price",
+                    "variation",
+                    "metadata",
+                )
+            ):
+                raise HTTPException(
+                    409, "Idempotency key was used with different item data"
+                )
+            await self._refresh_order_total(pb, token, order, user_id)
+            return match
         finite_decimal(data["quantity"], positive=True)
         finite_decimal(data["unit_price"])
         properties = await self._properties(
@@ -293,7 +418,7 @@ class TransactionalService:
         item = await pb.create_record(
             "order_items",
             {
-                "item_id": f"item_{uuid4().hex}",
+                "item_id": item_id,
                 "order_id": order_id,
                 **data,
                 "total_price": money(line_total(data)),
@@ -340,6 +465,24 @@ class TransactionalService:
         if len(items) <= 1:
             raise HTTPException(409, "An order must retain at least one item")
         await pb.delete_record("order_items", item["id"], token=token)
+        await self._refresh_order_total(pb, token, order, user_id)
+
+    @serialize_order
+    async def remove_order_item(self, pb, token, order_id, item_id, user_id=None):
+        """Order-scoped retry can repair totals even after the item disappeared."""
+        order = await pb.find_one_by_filter(
+            "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
+        )
+        require_editable(order)
+        await self._require_unpaid(pb, token, order_id)
+        items = await self._order_children(pb, token, "order_items", order_id)
+        selected = next(
+            (item for item in items if item.get("item_id") == item_id), None
+        )
+        if selected is not None:
+            if len(items) <= 1:
+                raise HTTPException(409, "An order must retain at least one item")
+            await pb.delete_record("order_items", selected["id"], token=token)
         await self._refresh_order_total(pb, token, order, user_id)
 
     async def list_payments(

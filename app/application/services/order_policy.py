@@ -7,7 +7,9 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.application.access import assert_site_active
 from app.infrastructure.operation_lock import operation_lock
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
 TRANSITIONS = {
     "pending": {"paid", "cancelled"},
@@ -63,7 +65,19 @@ def serialize_order(method):
     @wraps(method)
     async def wrapped(*args, **kwargs):
         bound = parameters.bind(*args, **kwargs).arguments
-        async with operation_lock("order:" + bound["order_id"]):
-            return await method(*args, **kwargs)
+        pb, token = bound["pb"], bound["token"]
+        order = await pb.find_one_by_filter(
+            "orders",
+            f'order_id="{sanitize_filter_value(bound["order_id"])}" && deleted_at=""',
+            token=token,
+        )
+        site_id = order["site_id"]
+        async with operation_lock("site:" + site_id):
+            site = await pb.find_one_by_filter(
+                "sites", f'site_id="{sanitize_filter_value(site_id)}"', token=token
+            )
+            assert_site_active(site)
+            async with operation_lock("order:" + bound["order_id"]):
+                return await method(*args, **kwargs)
 
     return wrapped

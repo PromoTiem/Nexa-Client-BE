@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.interface.account_dependencies import get_account_management_client
 from app.interface.dependencies import (
     TenantContext,
     get_pocketbase_client,
@@ -168,7 +169,7 @@ async def list_users(
     role: str | None = Query(None),
     search: str | None = Query(None),
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_account_management_client),
 ) -> UserListResponse:
     enforce_permission(ctx.auth, Permission.USERS_LIST)
     tenant = ctx.tenant_id
@@ -208,7 +209,7 @@ async def list_users(
 async def create_user(
     body: UserCreateRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_account_management_client),
 ) -> UserCreateResponse:
     enforce_permission(ctx.auth, Permission.USERS_CREATE)
     caller_role = UserRole(ctx.auth.record.get("role", "guest"))
@@ -254,7 +255,7 @@ async def create_user(
 async def get_user(
     user_id: str,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_account_management_client),
 ) -> UserResponse:
     enforce_permission(ctx.auth, Permission.USERS_LIST)
     validate_id(user_id, "user_id")
@@ -275,7 +276,7 @@ async def update_user(
     user_id: str,
     body: UserUpdateRequest,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_account_management_client),
 ) -> UserResponse:
     enforce_permission(ctx.auth, Permission.USERS_UPDATE)
     validate_id(user_id, "user_id")
@@ -318,7 +319,7 @@ async def update_user(
 async def delete_user(
     user_id: str,
     ctx: TenantContext = Depends(get_tenant_context),
-    pb: PocketBaseClient = Depends(get_pocketbase_client),
+    pb: PocketBaseClient = Depends(get_account_management_client),
 ) -> Response:
     enforce_permission(ctx.auth, Permission.USERS_DELETE)
     validate_id(user_id, "user_id")
