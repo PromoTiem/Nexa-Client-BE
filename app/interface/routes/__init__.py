@@ -16,6 +16,7 @@ from app.interface.routes.site import router as site_router
 from app.interface.routes.storage import router as storage_router
 from app.interface.routes.style import router as style_router
 from app.interface.routes.template import router as template_router
+from app.interface.routes.transactional import router as transactional_router
 from app.interface.routes.user import router as user_router
 
 router = APIRouter()
@@ -38,4 +39,5 @@ router.include_router(section_router, prefix="/sections", tags=["section"])
 router.include_router(media_router, prefix="/media", tags=["media"])
 router.include_router(storage_router, prefix="/storage", tags=["storage"])
 router.include_router(analytics_router, tags=["analytics"])
+router.include_router(transactional_router, tags=["transactional"])
 router.include_router(insights_router, tags=["insights"])

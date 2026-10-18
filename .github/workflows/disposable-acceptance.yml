@@ -1,0 +1,59 @@
+name: Disposable API acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_acceptance:
+        description: Run synthetic PocketBase API flows (no production endpoints)
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    if: ${{ inputs.run_acceptance }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Download verified PocketBase
+        run: |
+          mkdir -p "$RUNNER_TEMP/pocketbase"
+          curl --fail --location --retry 3 https://github.com/pocketbase/pocketbase/releases/download/v0.39.0/pocketbase_0.39.0_linux_amd64.zip -o "$RUNNER_TEMP/pocketbase/pocketbase.zip"
+          python - "$RUNNER_TEMP/pocketbase/pocketbase.zip" <<'PY'
+          import hashlib, pathlib, sys
+          archive = pathlib.Path(sys.argv[1])
+          expected = '142c891586650ed0009d5c600d3de2e7adb33f63f214fa94816deb9b4d33e029'
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+              raise SystemExit('PocketBase checksum mismatch')
+          PY
+          unzip -q "$RUNNER_TEMP/pocketbase/pocketbase.zip" -d "$RUNNER_TEMP/pocketbase"
+      - name: Exercise disposable HTTP and database flows
+        env:
+          NEXA_TEST_POCKETBASE_BINARY: ${{ runner.temp }}/pocketbase/pocketbase
+          TMPDIR: ${{ runner.temp }}
+        run: python -m pytest tests/flows -q -o addopts='' --junitxml=reports/disposable.xml
+      - name: Reject skipped acceptance
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('reports/disposable.xml').findall('.//testcase')
+          print(f'Acceptance cases: {len(cases)}')
+          if not cases or any(case.find('skipped') is not None for case in cases):
+              raise SystemExit('Acceptance must execute all collected cases')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: disposable-api-results
+          path: reports/disposable.xml
+          if-no-files-found: error
+          retention-days: 14

@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000"
 
     # Site deployment
-    site_base_domain: str = "promotiem.dpdns.org"
+    site_base_domain: str = "promotiem.shop"
 
     # Cloudflare
     cloudflare_api_token: str = ""

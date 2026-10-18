@@ -22,7 +22,7 @@ builders_repo_url: "https://github.com/PromoTiem/Nexa-Builders"
 github_token: ""
 
 # Site deployment
-site_base_domain: "promotiem.dpdns.org"
+site_base_domain: "promotiem.shop"
 
 # Telegram
 telegram_bot_token: ""

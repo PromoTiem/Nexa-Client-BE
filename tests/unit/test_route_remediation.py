@@ -516,7 +516,11 @@ def test_openapi_retains_routes_and_valid_path_parameters():
     app = FastAPI()
     app.include_router(router)
     paths = app.openapi()["paths"]
-    assert sum(len(methods) for methods in paths.values()) == 72
+    assert sum(len(methods) for methods in paths.values()) == 92
+    assert "delete" in paths["/orders/{order_id}/items/{item_id}"]
+    assert "post" in paths["/orders/{order_id}/fake-payment"]
+    assert {"get", "post"} <= set(paths["/sites/{site_id}/orders"])
+    assert {"get", "post"} <= set(paths["/sites/{site_id}/bookings"])
     for path, methods in paths.items():
         path_names = set(re.findall(r"\{([^}]+)\}", path))
         assert all(name.isidentifier() for name in path_names)
@@ -613,6 +617,7 @@ async def test_site_create_configures_browser_cors():
 
 async def test_public_booking_persists_only_published_and_trusted_fields():
     pb = AsyncMock()
+    pb.create_record.return_value = {"property_id": "submission", "site_id": "site"}
     pb.find_one_by_filter.side_effect = [
         {
             "config": {

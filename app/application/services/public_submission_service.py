@@ -6,9 +6,12 @@ from fastapi import HTTPException
 
 from app.application.access import assert_site_active
 from app.application.services.property_service import PropertyService
+from app.infrastructure.logging import get_logger
 from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
+
+logger = get_logger("public_submission_service")
 
 
 async def create_booking(
@@ -51,7 +54,7 @@ async def create_booking(
             raise HTTPException(status_code=413, detail="Booking fields too large")
         # Validation constraints come from the published service, never the submitter.
         fields = [{**field, "value": values.get(field["key"])} for field in schema]
-        return await PropertyService().create_property(
+        created = await PropertyService().create_property(
             pb=pb,
             token=pb._static_token,
             user_id="",
@@ -67,3 +70,23 @@ async def create_booking(
                 "metadata": {"service_id": service_id, "source": "website"},
             },
         )
+
+        from app.application.services.legacy_booking_service import convert_submission
+
+        try:
+            outcome = await convert_submission(
+                pb, pb._static_token, created, source="website", apply=True
+            )
+            logger.info(
+                "booking conversion",
+                extra={"source_id": created.get("property_id"), "outcome": outcome},
+            )
+        except Exception as exc:
+            logger.warning(
+                "booking conversion deferred",
+                extra={
+                    "source_id": created.get("property_id"),
+                    "error_type": type(exc).__name__,
+                },
+            )
+        return created
