@@ -50,6 +50,7 @@ class Permission(str, Enum):
     ANALYTICS_VIEW = "analytics:view"
     INSIGHTS_ACCESS = "insights:access"
 
+
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     UserRole.OWNER: frozenset(
         {

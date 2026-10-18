@@ -2,19 +2,23 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.application.access import (
+    ACTIVE_SITE_FILTER,
+    assert_site_active,
+    client_site_config,
+)
 from app.application.services.site_lifecycle_service import (
     create_site_record,
     delete_site_record,
 )
 from app.config import get_settings
-from app.infrastructure.cloudflare.client import CloudflareClient
 from app.infrastructure.logging import get_logger
+from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.infrastructure.storage.client import StorageClient
 from app.interface.dependencies import (
     TenantContext,
-    get_cloudflare_client,
     get_pocketbase_client,
     get_storage_client,
     get_tenant_context,
@@ -28,6 +32,7 @@ from app.interface.dto.site import (
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     map_site_record,
+    map_site_records,
     public_id_to_record_id,
     record_id_to_public_id,
     tenant_record_id,
@@ -37,9 +42,8 @@ from app.interface.route_helpers import (
 )
 
 COLLECTION = "sites"
-# Read-only PocketBase view that mirrors `sites` without the heavy `config`
-# blob. Created by the `sites_create_list_view` schema migration.
-SITES_LIST_VIEW = "sites_list"
+# Query sites directly so lifecycle filtering happens before pagination.
+# The legacy sites_list view omits config and cannot enforce this predicate.
 
 router = APIRouter()
 logger = get_logger("site_routes")
@@ -82,26 +86,20 @@ async def list_sites(
         sort, allowed_fields=["created_at", "updated_at", "name", "status"]
     )
     effective_tenant = ctx.tenant_id or tenant_id
-    filter_expr = None
+    filter_expr = ACTIVE_SITE_FILTER
     if effective_tenant:
         tenant_pb_id = await tenant_record_id(pb, ctx.token, effective_tenant)
-        filter_expr = f'tenant_id="{tenant_pb_id}"'
+        filter_expr = f'tenant_id="{tenant_pb_id}" && {ACTIVE_SITE_FILTER}'
     result = await pb.list_records(
-        collection=SITES_LIST_VIEW,
+        collection=COLLECTION,
         token=ctx.token,
         filter=filter_expr,
         sort=sort,
         page=page,
         per_page=per_page,
     )
-    items = [
-        _record_to_response(
-            await map_site_record(
-                r, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
-            )
-        )
-        for r in result.get("items", [])
-    ]
+    rows = await map_site_records(result.get("items", []), ctx.token, pb)
+    items = [_record_to_response(row) for row in rows]
     return SiteListResponse(
         items=items,
         total=result.get("totalItems", 0),
@@ -137,7 +135,7 @@ async def create_site(
         "default": body.default or False,
     }
     if body.config is not None:
-        data["config"] = body.config
+        data["config"] = client_site_config(body.config)
 
     record = await create_site_record(
         pb, storage, data, ctx.token, ctx.user_id, get_settings().site_base_domain
@@ -163,6 +161,7 @@ async def get_site(
         filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
         token=ctx.token,
     )
+    assert_site_active(record)
     record = await map_site_record(
         record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
     )
@@ -177,66 +176,85 @@ async def update_site(
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
 ) -> SiteResponse:
-    enforce_permission(ctx.auth, Permission.SITES_UPDATE)
-    validate_id(site_id, "site_id")
-    existing = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
-        token=ctx.token,
-    )
-    mapped_existing = await map_site_record(
-        existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
-    )
-    ctx.enforce_owns(mapped_existing)
-
-    if not body.model_fields_set:
-        return _record_to_response(mapped_existing)
-
-    update_data: dict[str, Any] = {}
-    if body.template_id is not None:
-        update_data["template_id"] = await tenant_resource_id(
-            pb, "templates", "template_id", body.template_id, ctx.token, ctx.tenant_id
+    async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
+        enforce_permission(ctx.auth, Permission.SITES_UPDATE)
+        validate_id(site_id, "site_id")
+        existing = await pb.find_one_by_filter(
+            collection=COLLECTION,
+            filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
+            token=ctx.token,
         )
-    if "domain" in body.model_fields_set:
-        update_data["domain"] = body.domain
-    if "domain_id" in body.model_fields_set:
-        if not body.domain_id:
-            update_data["domain_id"] = ""  # unlink
-        else:
-            dom_record_id = await public_id_to_record_id(
-                pb, "domains", "domain_id", body.domain_id, ctx.token
+        assert_site_active(existing)
+        mapped_existing = await map_site_record(
+            existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+        )
+        ctx.enforce_owns(mapped_existing)
+
+        if not body.model_fields_set:
+            return _record_to_response(mapped_existing)
+
+        update_data: dict[str, Any] = {}
+        if body.template_id is not None:
+            update_data["template_id"] = await tenant_resource_id(
+                pb,
+                "templates",
+                "template_id",
+                body.template_id,
+                ctx.token,
+                ctx.tenant_id,
             )
-            tenant = ctx.tenant_id
-            if tenant:
-                dom = await pb.find_one_by_filter(
-                    collection="domains",
-                    filter_expr=f'id="{sanitize_filter_value(dom_record_id)}"',
+        if "domain" in body.model_fields_set:
+            update_data["domain"] = body.domain
+        if "domain_id" in body.model_fields_set:
+            if not body.domain_id:
+                update_data["domain_id"] = ""  # unlink
+            else:
+                dom_record_id = await public_id_to_record_id(
+                    pb, "domains", "domain_id", body.domain_id, ctx.token
+                )
+                tenant = ctx.tenant_id
+                if tenant:
+                    dom = await pb.find_one_by_filter(
+                        collection="domains",
+                        filter_expr=f'id="{sanitize_filter_value(dom_record_id)}"',
+                        token=ctx.token,
+                    )
+                    dom_tenant_public = await record_id_to_public_id(
+                        pb, "tenants", "tenant_id", dom.get("tenant_id"), ctx.token
+                    )
+                    if dom_tenant_public != tenant:
+                        raise HTTPException(status_code=404, detail="Domain not found")
+                owners = await pb.list_records(
+                    collection="sites",
                     token=ctx.token,
+                    filter=f'domain_id="{sanitize_filter_value(dom_record_id)}"',
+                    per_page=2,
                 )
-                dom_tenant_public = await record_id_to_public_id(
-                    pb, "tenants", "tenant_id", dom.get("tenant_id"), ctx.token
-                )
-                if dom_tenant_public != tenant:
-                    raise HTTPException(status_code=404, detail="Domain not found")
-            update_data["domain_id"] = dom_record_id
-    if "config" in body.model_fields_set:
-        update_data["config"] = body.config
-    if body.status is not None:
-        update_data["status"] = body.status
-    if body.default is not None:
-        update_data["default"] = body.default
-    record = await pb.update_record(
-        collection=COLLECTION,
-        record_id=existing["id"],
-        data=update_data,
-        token=ctx.token,
-        user_id=ctx.user_id,
-    )
-    return _record_to_response(
-        await map_site_record(
-            record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+                if any(
+                    owner["id"] != existing["id"] for owner in owners.get("items", [])
+                ):
+                    raise HTTPException(409, "Domain is already linked to another site")
+                update_data["domain_id"] = dom_record_id
+        if "config" in body.model_fields_set:
+            update_data["config"] = client_site_config(
+                body.config, existing.get("config")
+            )
+        if body.status is not None:
+            update_data["status"] = body.status
+        if body.default is not None:
+            update_data["default"] = body.default
+        record = await pb.update_record(
+            collection=COLLECTION,
+            record_id=existing["id"],
+            data=update_data,
+            token=ctx.token,
+            user_id=ctx.user_id,
         )
-    )
+        return _record_to_response(
+            await map_site_record(
+                record, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+            )
+        )
 
 
 @router.delete("/{site_id}", status_code=204)
@@ -244,22 +262,20 @@ async def delete_site(
     site_id: str,
     ctx: TenantContext = Depends(get_tenant_context),
     pb: PocketBaseClient = Depends(get_pocketbase_client),
-    cf: CloudflareClient = Depends(get_cloudflare_client),
-    storage: StorageClient = Depends(get_storage_client),
 ) -> Response:
-    enforce_permission(ctx.auth, Permission.SITES_DELETE)
-    validate_id(site_id, "site_id")
-    existing = await pb.find_one_by_filter(
-        collection=COLLECTION,
-        filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
-        token=ctx.token,
-    )
-    mapped_existing = await map_site_record(
-        existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
-    )
-    ctx.enforce_owns(mapped_existing)
+    async with operation_lock("domain-lifecycle"), operation_lock(f"site:{site_id}"):
+        enforce_permission(ctx.auth, Permission.SITES_DELETE)
+        validate_id(site_id, "site_id")
+        existing = await pb.find_one_by_filter(
+            collection=COLLECTION,
+            filter_expr=f'site_id="{sanitize_filter_value(site_id)}"',
+            token=ctx.token,
+        )
+        assert_site_active(existing)
+        mapped_existing = await map_site_record(
+            existing, ctx.token, pb, fields=("tenant_id", "template_id", "domain_id")
+        )
+        ctx.enforce_owns(mapped_existing)
 
-    await delete_site_record(
-        pb, cf, storage, existing, ctx.token, get_settings().site_base_domain
-    )
-    return Response(status_code=204)
+        await delete_site_record(pb, existing, ctx.token, ctx.user_id)
+        return Response(status_code=204)

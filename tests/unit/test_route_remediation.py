@@ -246,6 +246,10 @@ async def test_foreign_insights_never_reach_llm(operation):
 
 async def test_build_filter_escapes_or_payload():
     pb = database()
+    pb.list_records.side_effect = [
+        {"items": [{"site_id": "active"}], "totalItems": 1},
+        {"items": [], "totalItems": 0},
+    ]
     await build.list_builds(
         page=1,
         per_page=50,
@@ -409,37 +413,27 @@ async def test_site_duplicate_create_does_not_delete_existing_bucket():
     pb.create_record.assert_not_awaited()
 
 
-async def test_site_cleanup_failure_preserves_retry_record(monkeypatch):
-    import app.application.services.site_lifecycle_service as lifecycle
-
-    monkeypatch.setattr(lifecycle, "remove_domain_from_pages", AsyncMock())
-    monkeypatch.setattr(lifecycle, "remove_dns_for_domain", AsyncMock())
-    pb, storage = AsyncMock(), AsyncMock()
+async def test_retention_write_failure_preserves_site_record():
+    pb = AsyncMock()
+    record = {"id": "record", "site_id": "site", "config": {}}
+    pb.find_record_by_id.return_value = record
     pb.list_records.return_value = {"items": []}
-    storage.empty_bucket.side_effect = HTTPException(502, "storage unavailable")
-    with pytest.raises(HTTPException):
-        await delete_site_record(
-            pb,
-            AsyncMock(),
-            storage,
-            {"id": "record", "site_id": "site", "bucket_name": "custom-bucket"},
-            "token",
-            "example.com",
-        )
-    storage.empty_bucket.assert_awaited_once_with("custom-bucket")
+    pb.update_record.side_effect = HTTPException(502, "database unavailable")
+    with pytest.raises(HTTPException) as exc:
+        await delete_site_record(pb, record, "token", "user")
+    assert exc.value.status_code == 502
     pb.delete_record.assert_not_awaited()
 
 
-async def test_shared_bucket_never_deleted():
-    pb, storage, cf = AsyncMock(), AsyncMock(), AsyncMock()
-    pb.list_records.return_value = {"items": [{"id": "other-site"}]}
+async def test_live_site_cannot_be_retained():
+    pb = AsyncMock()
+    record = {"id": "record", "site_id": "site", "serve_status": "live"}
+    pb.find_record_by_id.return_value = record
     with pytest.raises(HTTPException) as exc:
-        await delete_site_record(
-            pb, cf, storage, {"id": "record", "site_id": "site"}, "token", "example.com"
-        )
+        await delete_site_record(pb, record, "token", "user")
     assert exc.value.status_code == 409
-    assert storage.mock_calls == []
-    assert cf.mock_calls == []
+    pb.update_record.assert_not_awaited()
+    pb.delete_record.assert_not_awaited()
 
 
 def test_zero_and_false_survive_mapping():

@@ -31,7 +31,11 @@ class TokenTracker:
         if current != self._month_start:
             logger.info(
                 "token tracker month rollover",
-                extra={"prev_month": self._month_start, "new_month": current, "cost": self._total_cost},
+                extra={
+                    "prev_month": self._month_start,
+                    "new_month": current,
+                    "cost": self._total_cost,
+                },
             )
             self._total_tokens = 0
             self._total_cost = 0.0
@@ -43,7 +47,9 @@ class TokenTracker:
         self._reset_if_new_month()
 
         pricing = self.PRICING.get(model, self.PRICING["gpt-4o-mini"])
-        cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+        cost = (
+            input_tokens * pricing["input"] + output_tokens * pricing["output"]
+        ) / 1_000_000
 
         self._total_tokens += input_tokens + output_tokens
         self._total_cost += cost
@@ -59,7 +65,12 @@ class TokenTracker:
 
         logger.debug(
             "llm token usage",
-            extra={"model": model, "input": input_tokens, "output": output_tokens, "cost": cost},
+            extra={
+                "model": model,
+                "input": input_tokens,
+                "output": output_tokens,
+                "cost": cost,
+            },
         )
         return cost
 

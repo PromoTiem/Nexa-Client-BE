@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -64,7 +65,7 @@ async def _admin_pb_client():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _application_lifespan(app: FastAPI):
     # Start analytics collector if enabled
     if settings.analytics.aggregation_enabled:
         from app.infrastructure.analytics.collector import AnalyticsCollector
@@ -112,6 +113,21 @@ async def lifespan(app: FastAPI):
         await app.state.analytics_collector.stop()
 
     logger.info("client api stopped")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # One transport per application lifespan; credentials stay on each request.
+    timeout = httpx.Timeout(
+        connect=5.0, read=settings.pocketbase_timeout, write=10.0, pool=5.0
+    )
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        app.state.pocketbase_http = client
+        try:
+            async with _application_lifespan(app):
+                yield
+        finally:
+            del app.state.pocketbase_http
 
 
 app = FastAPI(
