@@ -77,9 +77,8 @@ class TransactionalService:
             per_page=per_page,
         )
         rows = result.get("items", [])
-        pending = [row for row in rows if row.get("status") == "pending"]
-        for offset in range(0, len(pending), 50):
-            batch = pending[offset : offset + 50]
+        for offset in range(0, len(rows), 50):
+            batch = rows[offset : offset + 50]
             query = " || ".join(
                 f"order_id={filter_value(row['order_id'])}" for row in batch
             )
@@ -88,9 +87,10 @@ class TransactionalService:
                 items = [
                     item for item in children if item["order_id"] == row["order_id"]
                 ]
-                row["total"] = money(
-                    sum((line_total(item) for item in items), Decimal(0))
-                )
+                if row.get("status") == "pending":
+                    row["total"] = money(
+                        sum((line_total(item) for item in items), Decimal(0))
+                    )
                 row["item_count"] = len(items)
         return result
 
