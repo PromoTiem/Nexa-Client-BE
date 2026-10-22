@@ -37,3 +37,11 @@ async def public_submission_limit(
     address = request.client.host if request.client else "unknown"
     await _check(settings, "5/minute", "public-submission-ip", address)
     await _check(settings, "100/minute", "public-submission-site", site_id)
+
+
+async def public_analytics_limit(
+    request: Request, settings: Settings = Depends(get_settings)
+) -> None:
+    # Same quota as the authenticated /analytics/events/track endpoint, keyed by visitor IP.
+    address = request.client.host if request.client else "unknown"
+    await _check(settings, "100/minute", "public-analytics-ip", address)
