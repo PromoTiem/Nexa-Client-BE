@@ -11,6 +11,20 @@ from app.application.services.transactional_service import (
 )
 
 
+def structured_booking(service_id, fields):
+    """Map submission fields onto the booking record; also return what is missing."""
+    values = {field.get("key"): field.get("value") for field in fields or []}
+    data = {
+        "property_id": service_id,
+        "customer_name": values.get("customer_name") or values.get("name"),
+        "customer_email": values.get("customer_email") or values.get("email"),
+        "date": values.get("date"),
+        "start_time": values.get("start_time"),
+        "end_time": values.get("end_time"),
+    }
+    return data, [key for key, value in data.items() if value in (None, "")]
+
+
 async def convert_submission(pb, token, submission, *, source, apply=False):
     site_id, source_id = submission.get("site_id"), submission.get("property_id")
     if (
@@ -39,15 +53,10 @@ async def convert_submission(pb, token, submission, *, source, apply=False):
         return "existing"
     fields = submission.get("fields") or []
     values = {field.get("key"): field.get("value") for field in fields}
-    data = {
-        "property_id": (submission.get("metadata") or {}).get("service_id"),
-        "customer_name": values.get("customer_name") or values.get("name"),
-        "customer_email": values.get("customer_email") or values.get("email"),
-        "date": values.get("date"),
-        "start_time": values.get("start_time"),
-        "end_time": values.get("end_time"),
-    }
-    if any(value in (None, "") for value in data.values()):
+    data, missing = structured_booking(
+        (submission.get("metadata") or {}).get("service_id"), fields
+    )
+    if missing:
         return "incomplete"
     await TransactionalService()._booking_slot(pb, token, site_id, data)
     if not apply:

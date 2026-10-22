@@ -4,13 +4,19 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from app.application.services.constants import SOFT_DELETE_FILTER
 from app.application.services.property_service import PropertyService
+from app.application.services.public_site_events import (
+    subscribe_newsletter,
+    track_public_event,
+)
 from app.application.services.public_submission_service import create_booking
 from app.application.services.record_mutation import locked_record
+from app.infrastructure.analytics.collector import AnalyticsCollector
 from app.infrastructure.logging import get_logger
 from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.interface.dependencies import (
     TenantContext,
+    get_analytics_collector,
     get_pocketbase_client,
     get_static_pocketbase_client,
     get_tenant_context,
@@ -22,7 +28,12 @@ from app.interface.dto.property import (
     PropertyUpdateRequest,
     PublicBookingRequest,
 )
-from app.interface.rate_limits import public_submission_limit
+from app.interface.dto.public_events import (
+    PublicAnalyticsEvent,
+    PublicEventAccepted,
+    PublicSubscriptionRequest,
+)
+from app.interface.rate_limits import public_analytics_limit, public_submission_limit
 from app.interface.rbac import Permission, enforce_permission
 from app.interface.route_helpers import (
     build_filter,
@@ -292,3 +303,34 @@ async def create_public_property(
     validate_id(site_id, "site_id")
     record = await create_booking(pb, site_id, body.model_dump())
     return _record_to_response(record)
+
+
+@public_property_router.post(
+    "/analytics/events",
+    dependencies=[Depends(public_analytics_limit)],
+    response_model=PublicEventAccepted,
+    status_code=202,
+)
+async def track_public_site_event(
+    body: PublicAnalyticsEvent,
+    pb: PocketBaseClient = Depends(get_static_pocketbase_client),
+    collector: AnalyticsCollector = Depends(get_analytics_collector),
+) -> PublicEventAccepted:
+    await track_public_event(pb, collector, body)
+    return PublicEventAccepted()
+
+
+@public_property_router.post(
+    "/sites/{site_id}/subscriptions",
+    dependencies=[Depends(public_submission_limit)],
+    response_model=PublicEventAccepted,
+    status_code=202,
+)
+async def subscribe_to_site_newsletter(
+    site_id: str,
+    body: PublicSubscriptionRequest,
+    pb: PocketBaseClient = Depends(get_static_pocketbase_client),
+) -> PublicEventAccepted:
+    validate_id(site_id, "site_id")
+    await subscribe_newsletter(pb, site_id, str(body.email))
+    return PublicEventAccepted()

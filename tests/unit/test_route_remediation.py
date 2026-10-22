@@ -2,7 +2,7 @@
 
 import ast
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -516,7 +516,9 @@ def test_openapi_retains_routes_and_valid_path_parameters():
     app = FastAPI()
     app.include_router(router)
     paths = app.openapi()["paths"]
-    assert sum(len(methods) for methods in paths.values()) == 92
+    assert sum(len(methods) for methods in paths.values()) == 94
+    assert "post" in paths["/public/analytics/events"]
+    assert "post" in paths["/public/sites/{site_id}/subscriptions"]
     assert "delete" in paths["/orders/{order_id}/items/{item_id}"]
     assert "post" in paths["/orders/{order_id}/fake-payment"]
     assert {"get", "post"} <= set(paths["/sites/{site_id}/orders"])
@@ -615,6 +617,19 @@ async def test_site_create_configures_browser_cors():
     )
 
 
+SCHEDULE_FIELDS = [
+    {"key": key, "label": key, "type": "text", "required": True}
+    for key in ("customer_name", "customer_email", "date", "start_time", "end_time")
+]
+SCHEDULE_VALUES = [
+    {"key": "customer_name", "value": "Customer"},
+    {"key": "customer_email", "value": "customer@example.com"},
+    {"key": "date", "value": "2026-10-26"},
+    {"key": "start_time", "value": "10:00"},
+    {"key": "end_time", "value": "11:00"},
+]
+
+
 async def test_public_booking_persists_only_published_and_trusted_fields():
     pb = AsyncMock()
     pb.create_record.return_value = {"property_id": "submission", "site_id": "site"}
@@ -634,22 +649,31 @@ async def test_public_booking_persists_only_published_and_trusted_fields():
                             "label": "Phone",
                             "type": "text",
                             "required": True,
-                        }
+                        },
+                        *SCHEDULE_FIELDS,
                     ],
                 }
             ]
         },
     ]
-    await create_booking(
-        pb,
-        "site",
-        {
-            "name": "Customer",
-            "fields": [{"key": "phone", "value": "123", "type": "richtext"}],
-            "metadata": {"service_id": "svc"},
-        },
-    )
-    data = pb.create_record.call_args.kwargs["data"]
+    pb.list_records.return_value = {"items": [], "totalItems": 0}
+    with patch(
+        "app.application.services.transactional_service.TransactionalService._booking_slot",
+        new_callable=AsyncMock,
+    ):
+        await create_booking(
+            pb,
+            "site",
+            {
+                "name": "Customer",
+                "fields": [
+                    {"key": "phone", "value": "123", "type": "richtext"},
+                    *SCHEDULE_VALUES,
+                ],
+                "metadata": {"service_id": "svc"},
+            },
+        )
+    data = pb.create_record.await_args_list[0].kwargs["data"]
     assert data["status"] == "published"
     assert data["type"] == "booking_submission"
     assert data["fields"][0]["type"] == "text"
