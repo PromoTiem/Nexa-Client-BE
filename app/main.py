@@ -13,6 +13,8 @@ from app.interface.middlewares.access_log import AccessLogMiddleware
 from app.interface.middlewares.dynamic_cors import DynamicCORSMiddleware
 from app.interface.middlewares.public_body_limit import PublicBodyLimitMiddleware
 from app.interface.routes import router
+from app.interface.routes.public_order import public_order_router
+from app.interface.routes.webhooks_momo import momo_webhook_router
 
 logger = get_logger("main")
 
@@ -26,7 +28,7 @@ async def _admin_pb_client():
     The collector flush and daily scheduler run without a request context,
     so they cannot use per-request user tokens. Without a token the PB
     client raises 401 before any HTTP call and background writes silently
-    fail — events are dropped and aggregates are never persisted.
+    fail: events are dropped and aggregates are never persisted.
     """
     from app.infrastructure.pocketbase.client import PocketBaseClient
 
@@ -151,3 +153,5 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(public_order_router)
+app.include_router(momo_webhook_router)

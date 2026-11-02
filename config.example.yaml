@@ -55,5 +55,18 @@ storage:
   presign_expiry_seconds: 900
   max_file_bytes: 10485760
 
+# MoMo Payment Gateway (Sandbox)
+momo:
+  enabled: false
+  partner_code: ""
+  access_key: ""
+  secret_key: ""
+  public_key: ""
+  endpoint: "https://test-payment.momo.vn/v2/gateway/api/create"
+  query_endpoint: "https://test-payment.momo.vn/v2/gateway/api/query"
+  ipn_url: ""
+  redirect_url: ""
+  order_expire_minutes: 15
+
 # Use a shared Redis URI in production so limits apply across all workers.
 rate_limit_storage_uri: "redis://redis:6379/0"
