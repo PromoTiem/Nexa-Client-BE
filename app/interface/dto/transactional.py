@@ -124,6 +124,7 @@ class BookingSummary(BaseModel):
     start_time: str
     end_time: str
     status: BookingStatus
+    provider_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -147,6 +148,7 @@ class BookingCreateRequest(BaseModel):
     notes: str | None = None
     fields: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
+    provider_id: str | None = None
 
 
 class BookingUpdateRequest(BaseModel):
@@ -160,6 +162,7 @@ class BookingUpdateRequest(BaseModel):
     notes: str | None = None
     fields: list[dict[str, Any]] | None = None
     metadata: dict[str, Any] | None = None
+    provider_id: str | None = None
 
     @field_validator(
         "status",
@@ -187,6 +190,7 @@ class AvailabilityResponse(BaseModel):
     max_bookings: int = 0
     is_active: bool = True
     metadata: dict[str, Any] | None = None
+    provider_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -199,6 +203,7 @@ class AvailabilityCreateRequest(BaseModel):
     max_bookings: int = Field(default=0, ge=0)
     is_active: bool = True
     metadata: dict[str, Any] | None = None
+    provider_id: str | None = None
 
 
 class AvailabilityUpdateRequest(BaseModel):
@@ -209,6 +214,7 @@ class AvailabilityUpdateRequest(BaseModel):
     max_bookings: int | None = Field(default=None, ge=0)
     is_active: bool | None = None
     metadata: dict[str, Any] | None = None
+    provider_id: str | None = None
 
 
 OrderListResponse = PaginatedResponse[OrderSummary]

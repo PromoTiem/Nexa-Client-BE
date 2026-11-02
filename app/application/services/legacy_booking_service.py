@@ -11,7 +11,7 @@ from app.application.services.transactional_service import (
 )
 
 
-def structured_booking(service_id, fields):
+def structured_booking(service_id, fields, provider_id=None):
     """Map submission fields onto the booking record; also return what is missing."""
     values = {field.get("key"): field.get("value") for field in fields or []}
     phone = values.get("phone") or ""
@@ -19,11 +19,18 @@ def structured_booking(service_id, fields):
     data = {
         "property_id": service_id,
         "customer_name": values.get("customer_name") or values.get("name"),
-        "customer_email": values.get("customer_email") or values.get("email") or guest_email,
+        "customer_email": values.get("customer_email")
+        or values.get("email")
+        or guest_email,
         "date": values.get("date") or values.get("booking_date"),
         "start_time": values.get("start_time") or values.get("booking_time"),
         "end_time": values.get("end_time"),
     }
+    extracted_provider_id = (
+        provider_id or values.get("provider_id") or values.get("provider")
+    )
+    if extracted_provider_id:
+        data["provider_id"] = extracted_provider_id
     return data, [key for key, value in data.items() if value in (None, "")]
 
 
@@ -55,27 +62,38 @@ async def convert_submission(pb, token, submission, *, source, apply=False):
         return "existing"
     fields = submission.get("fields") or []
     values = {field.get("key"): field.get("value") for field in fields}
+    meta = submission.get("metadata") or {}
+    provider_id = (
+        submission.get("provider_id")
+        or meta.get("provider_id")
+        or meta.get("provider")
+        or values.get("provider_id")
+        or values.get("provider")
+    )
     data, missing = structured_booking(
-        (submission.get("metadata") or {}).get("service_id"), fields
+        meta.get("service_id"), fields, provider_id=provider_id
     )
     if missing:
         return "incomplete"
     await TransactionalService()._booking_slot(pb, token, site_id, data)
     if not apply:
         return "would_convert"
+    booking_record = {
+        **data,
+        "booking_id": "booking_"
+        + sha256(f"{site_id}:{source_id}".encode()).hexdigest()[:32],
+        "site_id": site_id,
+        "status": "pending",
+        "deleted_at": "",
+        "fields": fields,
+        "customer_phone": values.get("customer_phone") or values.get("phone"),
+        "metadata": {"source": source, "legacy_property_id": source_id},
+    }
+    if data.get("provider_id"):
+        booking_record["provider_id"] = data["provider_id"]
     await pb.create_record(
         "bookings",
-        {
-            **data,
-            "booking_id": "booking_"
-            + sha256(f"{site_id}:{source_id}".encode()).hexdigest()[:32],
-            "site_id": site_id,
-            "status": "pending",
-            "deleted_at": "",
-            "fields": fields,
-            "customer_phone": values.get("customer_phone") or values.get("phone"),
-            "metadata": {"source": source, "legacy_property_id": source_id},
-        },
+        booking_record,
         token=token,
     )
     return "converted"

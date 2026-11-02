@@ -82,7 +82,15 @@ async def create_booking(
             )
         # Refuse what can never become a booking, before anything is stored: a 201
         # here used to leave the guest believing they had booked when no booking existed.
-        booking, missing = structured_booking(service_id, fields)
+        submission_provider_id = (
+            data.get("provider_id")
+            or (data.get("metadata") or {}).get("provider_id")
+            or values.get("provider_id")
+            or values.get("provider")
+        )
+        booking, missing = structured_booking(
+            service_id, fields, provider_id=submission_provider_id
+        )
         if missing:
             raise HTTPException(
                 status_code=422,
@@ -99,6 +107,10 @@ async def create_booking(
         except HTTPException:
             slug_candidate = f"{service_id}-{uuid.uuid4().hex[:6]}"
 
+        submission_metadata = {"service_id": service_id, "source": "website"}
+        if booking.get("provider_id"):
+            submission_metadata["provider_id"] = booking["provider_id"]
+
         created = await PropertyService().create_property(
             pb=pb,
             token=pb._static_token,
@@ -113,7 +125,7 @@ async def create_booking(
                 "status": "published",
                 "fields": fields,
                 "groups": [],
-                "metadata": {"service_id": service_id, "source": "website"},
+                "metadata": submission_metadata,
             },
         )
 
