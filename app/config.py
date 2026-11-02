@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     # PocketBase (IDP)
     pocketbase_url: str = "https://your-pocketbase-instance.example.com"
     pocketbase_auth_collection: str = "users"
+
     pocketbase_admin_email: str = ""
     pocketbase_admin_password: str = ""
     pocketbase_timeout: float = 10.0
