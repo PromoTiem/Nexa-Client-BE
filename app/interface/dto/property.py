@@ -130,9 +130,12 @@ PropertyListResponse = PaginatedResponse[PropertyResponse]
 
 
 class PublicBookingMetadata(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
     service_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
     source: Literal["website"] = "website"
+    start_time: str | None = None
+    end_time: str | None = None
+    duration: int | None = None
 
 
 class PublicBookingRequest(BaseModel):

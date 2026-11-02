@@ -91,6 +91,14 @@ async def create_booking(
         await TransactionalService()._booking_slot(
             pb, pb._static_token, site_id, booking
         )
+        slug_candidate = data.get("slug") or service_id
+        try:
+            await PropertyService()._check_slug_unique(
+                pb, pb._static_token, site_id, slug_candidate
+            )
+        except HTTPException:
+            slug_candidate = f"{service_id}-{uuid.uuid4().hex[:6]}"
+
         created = await PropertyService().create_property(
             pb=pb,
             token=pb._static_token,
@@ -100,6 +108,7 @@ async def create_booking(
                 "property_id": data.get("property_id") or f"booking_{uuid.uuid4().hex}",
                 "type": "booking_submission",
                 "name": data["name"],
+                "slug": slug_candidate,
                 # Published means submitted, not approved or confirmed.
                 "status": "published",
                 "fields": fields,
