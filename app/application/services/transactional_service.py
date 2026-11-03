@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from typing import Any
 from uuid import uuid4
@@ -54,6 +54,30 @@ class TransactionalService:
                 raise HTTPException(502, "Incomplete order child pagination")
             page += 1
 
+    @staticmethod
+    def _shipping_fee(order: dict[str, Any]) -> Decimal:
+        """Read the stored shipping fee without trusting malformed metadata."""
+        metadata = order.get("metadata")
+        if not isinstance(metadata, dict):
+            return Decimal(0)
+        raw_fee = metadata.get("shipping_fee")
+        if raw_fee in (None, ""):
+            return Decimal(0)
+        try:
+            fee = Decimal(str(raw_fee))
+        except (InvalidOperation, ValueError, TypeError):
+            return Decimal(0)
+        if not fee.is_finite() or fee < 0:
+            return Decimal(0)
+        return fee
+
+    def _pending_total(
+        self, order: dict[str, Any], items: list[dict[str, Any]]
+    ) -> float:
+        """Items plus shipping, so a pending total still matches what was charged."""
+        items_total = sum((line_total(item) for item in items), Decimal(0))
+        return money(items_total + self._shipping_fee(order))
+
     async def list_orders(
         self,
         pb: PocketBaseClient,
@@ -93,9 +117,7 @@ class TransactionalService:
                     item for item in children if item["order_id"] == row["order_id"]
                 ]
                 if row.get("status") == "pending":
-                    row["total"] = money(
-                        sum((line_total(item) for item in items), Decimal(0))
-                    )
+                    row["total"] = self._pending_total(row, items)
                 row["item_count"] = len(items)
         return result
 
@@ -139,7 +161,7 @@ class TransactionalService:
             "customer_email": order.get("customer_email"),
             "customer_phone": order.get("customer_phone"),
             "status": order.get("status", "pending"),
-            "total": money(sum((line_total(item) for item in item_records), Decimal(0)))
+            "total": self._pending_total(order, item_records)
             if order.get("status") == "pending"
             else order.get("total", 0),
             "currency": order.get("currency", "USD"),
@@ -436,7 +458,7 @@ class TransactionalService:
 
     async def _refresh_order_total(self, pb, token, order, user_id=None):
         items = await self._order_children(pb, token, "order_items", order["order_id"])
-        total = money(sum((line_total(item) for item in items), Decimal(0)))
+        total = self._pending_total(order, items)
         await pb.update_record(
             "orders", order["id"], {"total": total}, token=token, user_id=user_id
         )

@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.config import Settings, get_settings
+from app.config import MomoSettings, Settings, get_settings
 from app.infrastructure.momo.client import MomoGatewayClient, MomoGatewayError
 from app.infrastructure.momo.dto import MomoCreatePaymentResponse
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -16,7 +16,24 @@ from app.interface.routes.public_order import get_momo_client, public_order_rout
 SITE_ID = "site_alpha_123"
 
 
-def create_test_app(mock_pb: AsyncMock, mock_momo: AsyncMock | None = None) -> FastAPI:
+def configured_momo(**overrides: object) -> MomoSettings:
+    values: dict[str, object] = {
+        "enabled": True,
+        "partner_code": "MOMOTEST",
+        "access_key": "test-access-key",
+        "secret_key": "test-secret-key",
+        "ipn_url": "https://client-be.test/public/webhooks/momo/ipn",
+        "redirect_url": "https://admin.test/ecommerce/checkout/success",
+    }
+    values.update(overrides)
+    return MomoSettings(**values)
+
+
+def create_test_app(
+    mock_pb: AsyncMock,
+    mock_momo: AsyncMock | None = None,
+    momo: MomoSettings | None = None,
+) -> FastAPI:
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(public_order_router)
@@ -25,7 +42,8 @@ def create_test_app(mock_pb: AsyncMock, mock_momo: AsyncMock | None = None) -> F
     if mock_momo is not None:
         app.dependency_overrides[get_momo_client] = lambda: mock_momo
     app.dependency_overrides[get_settings] = lambda: Settings(
-        rate_limit_storage_uri="memory://"
+        rate_limit_storage_uri="memory://",
+        momo=momo or configured_momo(),
     )
     get_limiter("memory://").storage.reset()
     return app
@@ -459,7 +477,225 @@ async def test_momo_gateway_error_returns_502(mock_pb: AsyncMock) -> None:
             )
 
     assert response.status_code == 502
-    assert "MoMo gateway error" in response.text
+    assert response.json()["detail"] == "MoMo payment could not be initiated"
+    payment_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "payments"
+    ]
+    assert len(payment_calls) == 1
+    assert payment_calls[0].args[1]["status"] == "failed"
+    mock_pb.update_record.assert_awaited_once_with(
+        "orders", "rec_test_123", {"status": "cancelled"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_momo_disabled_returns_503_before_creating_order(
+    mock_pb: AsyncMock,
+) -> None:
+    app = create_test_app(mock_pb, momo=configured_momo(enabled=False))
+    payload = {
+        "customer_name": "Test User",
+        "payment_method": "momo",
+        "items": [
+            {
+                "property_id": "prop_item_1",
+                "quantity": 1,
+                "unit_price": 50000,
+            }
+        ],
+    }
+
+    with patch.object(
+        MomoGatewayClient, "create_payment", new_callable=AsyncMock
+    ) as create_payment:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                f"/public/sites/{SITE_ID}/orders", json=payload
+            )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "MoMo payments are not available"
+    create_payment.assert_not_awaited()
+    mock_pb.create_record.assert_not_awaited()
+    mock_pb.update_record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_momo_decline_cancels_order_and_records_failed_payment(
+    mock_pb: AsyncMock,
+) -> None:
+    app = create_test_app(mock_pb)
+    payload = {
+        "customer_name": "Test User",
+        "payment_method": "momo",
+        "items": [
+            {
+                "property_id": "prop_item_1",
+                "quantity": 1,
+                "unit_price": 50000,
+            }
+        ],
+    }
+    declined = MomoCreatePaymentResponse(
+        partnerCode="MOMOTEST",
+        orderId="order_ignored",
+        requestId="req_ignored",
+        amount=50000,
+        responseTime=1700000000,
+        message="Payment declined",
+        resultCode=99,
+        payUrl=None,
+    )
+
+    with patch.object(
+        MomoGatewayClient, "create_payment", new_callable=AsyncMock
+    ) as create_payment:
+        create_payment.return_value = declined
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                f"/public/sites/{SITE_ID}/orders", json=payload
+            )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "MoMo payment could not be initiated"
+    payment_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "payments"
+    ]
+    assert len(payment_calls) == 1
+    payment_data = payment_calls[0].args[1]
+    assert payment_data["status"] == "failed"
+    assert payment_data["request_id"].startswith("req_")
+    assert payment_data["raw_payload"]["resultCode"] == 99
+    mock_pb.update_record.assert_awaited_once_with(
+        "orders", "rec_test_123", {"status": "cancelled"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_momo_missing_pay_url_is_treated_as_failure(mock_pb: AsyncMock) -> None:
+    app = create_test_app(mock_pb)
+    payload = {
+        "customer_name": "Test User",
+        "payment_method": "momo",
+        "items": [
+            {
+                "property_id": "prop_item_1",
+                "quantity": 1,
+                "unit_price": 50000,
+            }
+        ],
+    }
+    unusable = MomoCreatePaymentResponse(
+        partnerCode="MOMOTEST",
+        orderId="order_ignored",
+        requestId="req_ignored",
+        amount=50000,
+        responseTime=1700000000,
+        message="Success without a payment page",
+        resultCode=0,
+        payUrl=None,
+    )
+
+    with patch.object(
+        MomoGatewayClient, "create_payment", new_callable=AsyncMock
+    ) as create_payment:
+        create_payment.return_value = unusable
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                f"/public/sites/{SITE_ID}/orders", json=payload
+            )
+
+    assert response.status_code == 502
+    payment_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "payments"
+    ]
+    assert len(payment_calls) == 1
+    assert payment_calls[0].args[1]["status"] == "failed"
+    mock_pb.update_record.assert_awaited_once_with(
+        "orders", "rec_test_123", {"status": "cancelled"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_order_keeps_shipping_fee_in_persisted_total(mock_pb: AsyncMock) -> None:
+    app = create_test_app(mock_pb)
+    payload = {
+        "customer_name": "Shipping Customer",
+        "payment_method": "cod",
+        "total": 350000,
+        "items": [
+            {
+                "property_id": "prop_item_1",
+                "quantity": 1,
+                "unit_price": 320000,
+            }
+        ],
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/public/sites/{SITE_ID}/orders", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["total"] == 350000
+
+    order_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "orders"
+    ]
+    assert len(order_calls) == 1
+    order_data = order_calls[0].args[1]
+    assert order_data["total"] == 350000
+    assert order_data["metadata"]["subtotal"] == 320000
+    assert order_data["metadata"]["shipping_fee"] == 30000
+
+    payment_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "payments"
+    ]
+    assert len(payment_calls) == 1
+    assert payment_calls[0].args[1]["amount"] == 350000
+
+
+@pytest.mark.asyncio
+async def test_rejection_on_total_below_item_subtotal(mock_pb: AsyncMock) -> None:
+    app = create_test_app(mock_pb)
+    payload = {
+        "customer_name": "Test User",
+        "payment_method": "cod",
+        "total": 5000,
+        "items": [
+            {
+                "property_id": "prop_item_1",
+                "quantity": 1,
+                "unit_price": 10000,
+            }
+        ],
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/public/sites/{SITE_ID}/orders", json=payload)
+
+    assert response.status_code == 422
+    assert "Order total cannot be less than the item subtotal" in response.text
+    mock_pb.create_record.assert_not_awaited()
 
 
 @pytest.mark.asyncio

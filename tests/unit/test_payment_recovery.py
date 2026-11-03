@@ -103,3 +103,93 @@ async def test_pending_detail_uses_persisted_items_when_cached_total_is_stale():
     result = await TransactionalService().get_order(pb, "token", "order")
     assert result["total"] == 20
     pb.update_record.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pending_detail_keeps_shipping_fee_in_total():
+    pb = AsyncMock()
+    pb.find_one_by_filter.return_value = {
+        "id": "o",
+        "order_id": "order",
+        "site_id": "site",
+        "status": "pending",
+        "total": 350000,
+        "metadata": {"shipping_fee": 30000},
+    }
+    pb.list_records.side_effect = [
+        {
+            "items": [
+                {
+                    "item_id": "i",
+                    "order_id": "order",
+                    "property_id": "prop",
+                    "quantity": 2,
+                    "unit_price": 160000,
+                    "total_price": 320000,
+                }
+            ]
+        },
+        {"items": []},
+        {"items": []},
+    ]
+    result = await TransactionalService().get_order(pb, "token", "order")
+    assert result["total"] == 350000
+    pb.update_record.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pending_detail_repairs_stale_total_with_shipping_fee():
+    pb = AsyncMock()
+    pb.find_one_by_filter.return_value = {
+        "id": "o",
+        "order_id": "order",
+        "site_id": "site",
+        "status": "pending",
+        "total": 350000,
+        "metadata": {"shipping_fee": 30000},
+    }
+    pb.list_records.side_effect = [
+        {
+            "items": [
+                {
+                    "item_id": "i",
+                    "order_id": "order",
+                    "property_id": "prop",
+                    "quantity": 2,
+                    "unit_price": 165000,
+                    "total_price": 330000,
+                }
+            ]
+        },
+        {"items": []},
+        {"items": []},
+    ]
+    result = await TransactionalService().get_order(pb, "token", "order")
+    assert result["total"] == 360000
+    pb.update_record.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_order_total_preserves_shipping_fee():
+    pb = AsyncMock()
+    pb.list_records.return_value = {
+        "items": [
+            {
+                "quantity": 2,
+                "unit_price": 160000,
+            }
+        ]
+    }
+    order = {
+        "id": "o",
+        "order_id": "order",
+        "site_id": "site",
+        "metadata": {"shipping_fee": 30000},
+    }
+
+    total = await TransactionalService()._refresh_order_total(pb, "token", order)
+
+    assert total == 350000
+    pb.update_record.assert_awaited_once_with(
+        "orders", "o", {"total": 350000}, token="token", user_id=None
+    )
