@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -69,6 +70,29 @@ class MomoSettings(BaseSettings):
     order_expire_minutes: int = 15
 
 
+DEMO_ECOMMERCE_PRICES: dict[str, int] = {
+    # Mirrors Nexa-FE packages/cms/.../ecommerce/data/ecommerceCatalogue.ts.
+    # Temporary until the live product/catalogue API exists; the server is the
+    # authority for what a shopper pays.
+    "p-ly-gom": 320_000,
+    "p-den-may": 680_000,
+    "p-khay-go": 250_000,
+    "p-binh-hoa": 390_000,
+    "p-tham-len": 1_250_000,
+    "p-nen-thom": 180_000,
+    "p-gio-may": 220_000,
+    "p-coc-su": 150_000,
+}
+
+
+class EcommerceSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    prices: dict[str, int] = Field(default_factory=lambda: dict(DEMO_ECOMMERCE_PRICES))
+    free_shipping_threshold: int = Field(default=500_000, ge=0)
+    shipping_fee: int = Field(default=30_000, ge=0)
+
+
 class Settings(BaseSettings):
     # Nested settings are overridable via the "__" delimiter, e.g.
     # STORAGE__ENDPOINT_URL, LOGGING__LEVEL.
@@ -125,6 +149,9 @@ class Settings(BaseSettings):
 
     # MoMo Payment Gateway
     momo: MomoSettings = MomoSettings()
+
+    # Public ecommerce checkout pricing
+    ecommerce: EcommerceSettings = EcommerceSettings()
 
     @classmethod
     def settings_customise_sources(

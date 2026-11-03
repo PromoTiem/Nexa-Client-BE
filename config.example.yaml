@@ -68,5 +68,22 @@ momo:
   redirect_url: ""
   order_expire_minutes: 15
 
+# Public ecommerce checkout pricing.
+# The server is the authority for the amount charged; client prices are ignored.
+# These values mirror Nexa-FE's ecommerceCatalogue.ts until the live catalogue
+# API exists. Override here or via ECOMMERCE__PRICES / ECOMMERCE__SHIPPING_FEE.
+ecommerce:
+  prices:
+    p-ly-gom: 320000
+    p-den-may: 680000
+    p-khay-go: 250000
+    p-binh-hoa: 390000
+    p-tham-len: 1250000
+    p-nen-thom: 180000
+    p-gio-may: 220000
+    p-coc-su: 150000
+  free_shipping_threshold: 500000
+  shipping_fee: 30000
+
 # Use a shared Redis URI in production so limits apply across all workers.
 rate_limit_storage_uri: "redis://redis:6379/0"
