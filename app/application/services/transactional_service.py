@@ -727,6 +727,7 @@ class TransactionalService:
             "start_time": booking.get("start_time", ""),
             "end_time": booking.get("end_time", ""),
             "status": booking.get("status", "pending"),
+            "provider_id": booking.get("provider_id"),
             "created_at": booking.get("created_at"),
             "updated_at": booking.get("updated_at"),
             "notes": booking.get("notes"),
@@ -741,6 +742,7 @@ class TransactionalService:
     async def _booking_slot(self, pb, token, site_id, data, booking_id=None):
         day = booking_policy.booking_date(data.get("date"))
         start, end = booking_policy.interval(data)
+        provider_id = data.get("provider_id")
         prop = await self._properties(pb, token, site_id, [data["property_id"]])
         selected = prop.get(data["property_id"], {})
         if (
@@ -758,7 +760,7 @@ class TransactionalService:
         )
         if not slots:
             return  # Manual scheduling remains available until weekly hours are configured.
-        candidates = [
+        active_day_slots = [
             slot
             for slot in slots
             if slot.get("is_active")
@@ -766,33 +768,103 @@ class TransactionalService:
             and booking_policy.minutes(slot["start_time"]) <= start
             and booking_policy.minutes(slot["end_time"]) >= end
         ]
-        if not candidates:
+        if not active_day_slots:
             raise HTTPException(409, "Requested booking is outside active availability")
+
         existing = await self._all_records(
             pb,
             token,
             "bookings",
             f'site_id={filter_value(site_id)} && property_id={filter_value(data["property_id"])} && deleted_at="" && (status="pending" || status="confirmed")',
         )
-        events = []
-        for other in existing:
-            if (
-                other.get("booking_id") == booking_id
-                or booking_policy.booking_date(other["date"]) != day
+
+        def _calculate_peak(other_bookings):
+            events = []
+            for other in other_bookings:
+                if (
+                    other.get("booking_id") == booking_id
+                    or booking_policy.booking_date(other["date"]) != day
+                ):
+                    continue
+                other_start, other_end = booking_policy.interval(other)
+                if other_start < end and other_end > start:
+                    events.extend(
+                        [(max(start, other_start), 1), (min(end, other_end), -1)]
+                    )
+            concurrent = peak = 0
+            for _, delta in sorted(events):
+                concurrent += delta
+                peak = max(peak, concurrent)
+            return peak
+
+        if provider_id and provider_id != "auto":
+            provider_candidates = [
+                slot
+                for slot in active_day_slots
+                if slot.get("provider_id") == provider_id
+            ]
+            if not provider_candidates:
+                raise HTTPException(
+                    409, "Requested booking is outside active availability"
+                )
+            other_provider_bookings = [
+                other for other in existing if other.get("provider_id") == provider_id
+            ]
+            peak = _calculate_peak(other_provider_bookings)
+            if not any(
+                slot.get("max_bookings", 0) == 0 or peak < slot["max_bookings"]
+                for slot in provider_candidates
             ):
-                continue
-            other_start, other_end = booking_policy.interval(other)
-            if other_start < end and other_end > start:
-                events.extend([(max(start, other_start), 1), (min(end, other_end), -1)])
-        concurrent = peak = 0
-        for _, delta in sorted(events):
-            concurrent += delta
-            peak = max(peak, concurrent)
-        if not any(
-            slot.get("max_bookings", 0) == 0 or peak < slot["max_bookings"]
-            for slot in candidates
-        ):
-            raise HTTPException(409, "Requested booking slot is full")
+                raise HTTPException(409, "Requested booking slot is full")
+        else:
+            specific_provider_slots = [
+                slot for slot in active_day_slots if slot.get("provider_id")
+            ]
+            if specific_provider_slots:
+                available_provider = None
+                provider_groups: dict[str, list[dict[str, Any]]] = {}
+                for slot in specific_provider_slots:
+                    pid = slot["provider_id"]
+                    provider_groups.setdefault(pid, []).append(slot)
+
+                for pid, p_slots in provider_groups.items():
+                    p_bookings = [
+                        other for other in existing if other.get("provider_id") == pid
+                    ]
+                    p_peak = _calculate_peak(p_bookings)
+                    if any(
+                        s.get("max_bookings", 0) == 0 or p_peak < s["max_bookings"]
+                        for s in p_slots
+                    ):
+                        available_provider = pid
+                        break
+
+                unassigned_slots = [
+                    slot for slot in active_day_slots if not slot.get("provider_id")
+                ]
+                unassigned_open = False
+                if unassigned_slots:
+                    unassigned_bookings = [
+                        other for other in existing if not other.get("provider_id")
+                    ]
+                    u_peak = _calculate_peak(unassigned_bookings)
+                    unassigned_open = any(
+                        s.get("max_bookings", 0) == 0 or u_peak < s["max_bookings"]
+                        for s in unassigned_slots
+                    )
+
+                if available_provider:
+                    if provider_id == "auto":
+                        data["provider_id"] = available_provider
+                elif not unassigned_open:
+                    raise HTTPException(409, "Requested booking slot is full")
+            else:
+                peak = _calculate_peak(existing)
+                if not any(
+                    slot.get("max_bookings", 0) == 0 or peak < slot["max_bookings"]
+                    for slot in active_day_slots
+                ):
+                    raise HTTPException(409, "Requested booking slot is full")
 
     async def _all_records(self, pb, token, collection, filter_expr):
         records = []

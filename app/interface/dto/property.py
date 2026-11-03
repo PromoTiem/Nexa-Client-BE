@@ -136,6 +136,7 @@ class PublicBookingMetadata(BaseModel):
     start_time: str | None = None
     end_time: str | None = None
     duration: int | None = None
+    provider_id: str | None = None
 
 
 class PublicBookingRequest(BaseModel):
@@ -149,3 +150,4 @@ class PublicBookingRequest(BaseModel):
     status: Literal["published"] = "published"
     fields: list[PropertyField] = Field(max_length=30)
     metadata: PublicBookingMetadata
+    provider_id: str | None = None
