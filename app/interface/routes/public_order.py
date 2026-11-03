@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.momo.client import MomoGatewayClient, MomoGatewayError
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -22,6 +23,74 @@ def get_momo_client() -> MomoGatewayClient:
     return MomoGatewayClient()
 
 
+def momo_checkout_configured(settings: Settings) -> bool:
+    """A usable MoMo checkout needs the full round trip, not just a partner code.
+
+    Without the IPN URL MoMo cannot confirm the payment, and without the
+    redirect URL the shopper never returns to the storefront.
+    """
+    momo = settings.momo
+    return bool(
+        momo.enabled
+        and momo.partner_code
+        and momo.access_key
+        and momo.secret_key
+        and momo.ipn_url
+        and momo.redirect_url
+    )
+
+
+async def record_failed_momo_attempt(
+    pb: PocketBaseClient,
+    *,
+    order_record_id: str | None,
+    order_id: str,
+    payment_id: str,
+    request_id: str,
+    amount: int,
+    partner_code: str,
+    raw_payload: dict[str, object],
+    note: str,
+) -> None:
+    """Persist a rejected attempt and cancel the order that can no longer be paid.
+
+    Audit writes must never hide the gateway error from the caller, so failures
+    here are logged and swallowed.
+    """
+    try:
+        await pb.create_record(
+            "payments",
+            {
+                "payment_id": payment_id,
+                "order_id": order_id,
+                "gateway": "momo",
+                "method": "momo",
+                "status": "failed",
+                "request_id": request_id,
+                "amount": amount,
+                "currency": "VND",
+                "partner_code": partner_code,
+                "raw_payload": raw_payload,
+                "notes": note,
+            },
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to record rejected MoMo payment",
+            extra={"order_id": order_id, "error": str(exc)},
+        )
+
+    if not order_record_id:
+        return
+    try:
+        await pb.update_record("orders", order_record_id, {"status": "cancelled"})
+    except Exception as exc:
+        logger.error(
+            "Failed to cancel rejected MoMo order",
+            extra={"order_id": order_id, "error": str(exc)},
+        )
+
+
 @public_order_router.post(
     "/sites/{site_id}/orders",
     dependencies=[Depends(public_submission_limit)],
@@ -33,6 +102,7 @@ async def create_public_order(
     body: PublicOrderCreateRequest,
     pb: PocketBaseClient = Depends(get_static_pocketbase_client),
     momo_client: MomoGatewayClient = Depends(get_momo_client),
+    settings: Settings = Depends(get_settings),
 ) -> PublicOrderResponse:
     validate_id(site_id, "site_id")
 
@@ -54,10 +124,8 @@ async def create_public_order(
                 detail="Item unit price cannot be negative",
             )
 
-    if body.total is not None:
-        order_total = body.total
-    else:
-        order_total = sum(int(item.quantity * item.unit_price) for item in body.items)
+    subtotal = sum(int(item.quantity * item.unit_price) for item in body.items)
+    order_total = body.total if body.total is not None else subtotal
 
     if order_total < 1_000:
         raise HTTPException(
@@ -69,6 +137,12 @@ async def create_public_order(
             status_code=422,
             detail="Order amount must not exceed 50,000,000 VND",
         )
+    if order_total < subtotal:
+        raise HTTPException(
+            status_code=422,
+            detail="Order total cannot be less than the item subtotal",
+        )
+    shipping_fee = order_total - subtotal
 
     payment_method = (body.payment_method or "cod").strip().lower()
     if payment_method not in {"momo", "cod", "bank"}:
@@ -76,9 +150,18 @@ async def create_public_order(
             status_code=422,
             detail=f"Unsupported payment method: {payment_method}",
         )
+    if payment_method == "momo" and not momo_checkout_configured(settings):
+        logger.warning(
+            "MoMo checkout is disabled or incomplete",
+            extra={"site_id": site_id},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="MoMo payments are not available",
+        )
 
     order_id = f"order_{uuid4().hex}"
-    order_record = {
+    order_payload = {
         "order_id": order_id,
         "site_id": site_id,
         "customer_name": body.customer_name,
@@ -92,9 +175,14 @@ async def create_public_order(
             **(body.metadata or {}),
             "shipping_address": body.shipping_address,
             "payment_method": payment_method,
+            "subtotal": subtotal,
+            "shipping_fee": shipping_fee,
         },
     }
-    await pb.create_record("orders", order_record)
+    created_order = await pb.create_record("orders", order_payload)
+    order_record_id = (
+        created_order.get("id") if isinstance(created_order, dict) else None
+    )
 
     for item in body.items:
         item_id = f"item_{uuid4().hex}"
@@ -112,6 +200,8 @@ async def create_public_order(
 
     if payment_method == "momo":
         request_id = f"req_{uuid4().hex}"
+        payment_id = f"pay_{uuid4().hex}"
+        partner_code = getattr(momo_client, "partner_code", "") or ""
         momo_req = {
             "requestId": request_id,
             "orderId": order_id,
@@ -126,12 +216,64 @@ async def create_public_order(
                 "MoMo payment initiation failed",
                 extra={"error": str(exc), "order_id": order_id},
             )
+            await record_failed_momo_attempt(
+                pb,
+                order_record_id=order_record_id,
+                order_id=order_id,
+                payment_id=payment_id,
+                request_id=request_id,
+                amount=order_total,
+                partner_code=partner_code,
+                raw_payload={},
+                note="MoMo gateway error",
+            )
             raise HTTPException(
                 status_code=502,
-                detail=f"MoMo gateway error: {exc}",
+                detail="MoMo payment could not be initiated",
             ) from exc
+        except Exception as exc:
+            logger.exception(
+                "Unexpected MoMo payment initiation failure",
+                extra={"error": str(exc), "order_id": order_id},
+            )
+            await record_failed_momo_attempt(
+                pb,
+                order_record_id=order_record_id,
+                order_id=order_id,
+                payment_id=payment_id,
+                request_id=request_id,
+                amount=order_total,
+                partner_code=partner_code,
+                raw_payload={},
+                note="Unexpected MoMo gateway error",
+            )
+            raise
 
-        payment_id = f"pay_{uuid4().hex}"
+        raw_payload = momo_res.model_dump() if hasattr(momo_res, "model_dump") else {}
+        if momo_res.resultCode != 0 or not momo_res.payUrl:
+            logger.warning(
+                "MoMo rejected payment initiation",
+                extra={
+                    "order_id": order_id,
+                    "result_code": momo_res.resultCode,
+                },
+            )
+            await record_failed_momo_attempt(
+                pb,
+                order_record_id=order_record_id,
+                order_id=order_id,
+                payment_id=payment_id,
+                request_id=request_id,
+                amount=order_total,
+                partner_code=partner_code,
+                raw_payload=raw_payload,
+                note=f"MoMo resultCode {momo_res.resultCode}",
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="MoMo payment could not be initiated",
+            )
+
         payment_record = {
             "payment_id": payment_id,
             "order_id": order_id,
@@ -141,11 +283,8 @@ async def create_public_order(
             "request_id": request_id,
             "amount": order_total,
             "currency": "VND",
-            "partner_code": getattr(momo_res, "partnerCode", None)
-            or getattr(momo_client, "partner_code", ""),
-            "raw_payload": momo_res.model_dump()
-            if hasattr(momo_res, "model_dump")
-            else {},
+            "partner_code": momo_res.partnerCode or partner_code,
+            "raw_payload": raw_payload,
         }
         await pb.create_record("payments", payment_record)
 

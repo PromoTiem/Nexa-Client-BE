@@ -105,6 +105,22 @@ async def get_order(
     return OrderDetail(**result)
 
 
+@router.post("/orders/{order_id}/reconcile", response_model=OrderDetail)
+async def reconcile_order(
+    order_id: str,
+    ctx: TenantContext = Depends(get_tenant_context),
+    pb: PocketBaseClient = Depends(get_pocketbase_client),
+) -> OrderDetail:
+    """Query the gateway and reconcile a pending order payment."""
+    enforce_permission(ctx.auth, Permission.ORDERS_MANAGE)
+    validate_id(order_id, "order_id")
+    current = await service.get_order(pb, ctx.token, order_id)
+    await ctx.enforce_site(pb, current["site_id"])
+    return OrderDetail(
+        **await service.reconcile_momo_payment(pb, ctx.token, order_id, _user_id(ctx))
+    )
+
+
 @router.patch("/orders/{order_id}", response_model=OrderDetail)
 async def update_order(
     order_id: str,
