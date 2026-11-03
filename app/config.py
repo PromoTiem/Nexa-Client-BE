@@ -54,6 +54,21 @@ class AnalyticsSettings(BaseSettings):
     daily_aggregation_hour: int = 2  # UTC hour to run daily aggregation (0-23)
 
 
+class MomoSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    enabled: bool = False
+    partner_code: str = ""
+    access_key: str = ""
+    secret_key: str = ""
+    public_key: str = ""
+    endpoint: str = "https://test-payment.momo.vn/v2/gateway/api/create"
+    query_endpoint: str = "https://test-payment.momo.vn/v2/gateway/api/query"
+    ipn_url: str = ""
+    redirect_url: str = ""
+    order_expire_minutes: int = 15
+
+
 class Settings(BaseSettings):
     # Nested settings are overridable via the "__" delimiter, e.g.
     # STORAGE__ENDPOINT_URL, LOGGING__LEVEL.
@@ -107,6 +122,9 @@ class Settings(BaseSettings):
 
     # Analytics
     analytics: AnalyticsSettings = AnalyticsSettings()
+
+    # MoMo Payment Gateway
+    momo: MomoSettings = MomoSettings()
 
     @classmethod
     def settings_customise_sources(

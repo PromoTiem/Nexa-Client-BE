@@ -19,7 +19,9 @@ def structured_booking(service_id, fields):
     data = {
         "property_id": service_id,
         "customer_name": values.get("customer_name") or values.get("name"),
-        "customer_email": values.get("customer_email") or values.get("email") or guest_email,
+        "customer_email": values.get("customer_email")
+        or values.get("email")
+        or guest_email,
         "date": values.get("date") or values.get("booking_date"),
         "start_time": values.get("start_time") or values.get("booking_time"),
         "end_time": values.get("end_time"),

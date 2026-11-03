@@ -16,12 +16,17 @@ from app.application.services.order_policy import (
     serialize_order,
     validate_transition,
 )
+from app.infrastructure.logging import get_logger
+from app.infrastructure.momo.client import MomoGatewayClient, MomoGatewayError
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
 
 
 def filter_value(value: str) -> str:
     return f'"{sanitize_filter_value(value)}"'
+
+
+logger = get_logger("transactional_service")
 
 
 class TransactionalService:
@@ -592,6 +597,78 @@ class TransactionalService:
             "orders", order["id"], {"status": "paid"}, token=token, user_id=user_id
         )
         return payment
+
+    @serialize_order
+    async def reconcile_momo_payment(
+        self,
+        pb: PocketBaseClient,
+        token: str,
+        order_id: str,
+        user_id: str | None = None,
+        momo_client: MomoGatewayClient | None = None,
+    ) -> dict[str, Any]:
+        """Query MoMo payment gateway status and reconcile pending order/payment state."""
+        order = await pb.find_one_by_filter(
+            "orders", f'order_id={filter_value(order_id)} && deleted_at=""', token=token
+        )
+        if order.get("status") in {"paid", "fulfilled"}:
+            return await self.get_order(pb, token, order_id)
+
+        payments = await self._order_children(pb, token, "payments", order_id)
+        momo_payment = next(
+            (
+                p
+                for p in payments
+                if (p.get("gateway") == "momo" or p.get("method") == "momo")
+                and p.get("status") == "pending"
+            ),
+            None,
+        )
+
+        if not momo_payment or not momo_payment.get("request_id"):
+            return await self.get_order(pb, token, order_id)
+
+        client = momo_client or MomoGatewayClient()
+        try:
+            query_res = await client.query_payment(
+                order_id=order_id,
+                request_id=momo_payment["request_id"],
+            )
+        except MomoGatewayError as exc:
+            logger.warning(
+                "MoMo status query failed during reconciliation",
+                extra={"order_id": order_id, "error": str(exc)},
+            )
+            return await self.get_order(pb, token, order_id)
+
+        if query_res.resultCode == 0:
+            payment_update: dict[str, Any] = {"status": "completed"}
+            if query_res.transId is not None:
+                payment_update["trans_id"] = str(query_res.transId)
+            await pb.update_record(
+                "payments",
+                momo_payment["id"],
+                payment_update,
+                token=token,
+                user_id=user_id,
+            )
+            await pb.update_record(
+                "orders",
+                order["id"],
+                {"status": "paid"},
+                token=token,
+                user_id=user_id,
+            )
+        elif query_res.resultCode in {1001, 1002, 1006}:
+            await pb.update_record(
+                "payments",
+                momo_payment["id"],
+                {"status": "failed"},
+                token=token,
+                user_id=user_id,
+            )
+
+        return await self.get_order(pb, token, order_id)
 
     async def list_bookings(
         self,
