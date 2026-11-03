@@ -2,6 +2,11 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.application.services.ecommerce_pricing import (
+    OrderTotalMismatchError,
+    UnknownProductError,
+    price_order,
+)
 from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.momo.client import MomoGatewayClient, MomoGatewayError
@@ -124,9 +129,38 @@ async def create_public_order(
                 detail="Item unit price cannot be negative",
             )
 
-    subtotal = sum(int(item.quantity * item.unit_price) for item in body.items)
-    order_total = body.total if body.total is not None else subtotal
+    if body.total is not None:
+        if body.total < 1_000:
+            raise HTTPException(
+                status_code=422,
+                detail="Order amount must be at least 1,000 VND",
+            )
+        if body.total > 50_000_000:
+            raise HTTPException(
+                status_code=422,
+                detail="Order amount must not exceed 50,000,000 VND",
+            )
 
+    try:
+        pricing = price_order(
+            ((item.property_id, item.quantity) for item in body.items),
+            prices=settings.ecommerce.prices,
+            free_shipping_threshold=settings.ecommerce.free_shipping_threshold,
+            shipping_fee=settings.ecommerce.shipping_fee,
+            requested_total=body.total,
+        )
+    except UnknownProductError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown product: {exc.product_id}",
+        ) from exc
+    except OrderTotalMismatchError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Order total does not match current prices. Please refresh the cart.",
+        ) from exc
+
+    order_total = pricing.total
     if order_total < 1_000:
         raise HTTPException(
             status_code=422,
@@ -137,12 +171,6 @@ async def create_public_order(
             status_code=422,
             detail="Order amount must not exceed 50,000,000 VND",
         )
-    if order_total < subtotal:
-        raise HTTPException(
-            status_code=422,
-            detail="Order total cannot be less than the item subtotal",
-        )
-    shipping_fee = order_total - subtotal
 
     payment_method = (body.payment_method or "cod").strip().lower()
     if payment_method not in {"momo", "cod", "bank"}:
@@ -175,8 +203,8 @@ async def create_public_order(
             **(body.metadata or {}),
             "shipping_address": body.shipping_address,
             "payment_method": payment_method,
-            "subtotal": subtotal,
-            "shipping_fee": shipping_fee,
+            "subtotal": pricing.subtotal,
+            "shipping_fee": pricing.shipping_fee,
         },
     }
     created_order = await pb.create_record("orders", order_payload)
@@ -184,15 +212,15 @@ async def create_public_order(
         created_order.get("id") if isinstance(created_order, dict) else None
     )
 
-    for item in body.items:
+    for item, priced in zip(body.items, pricing.lines, strict=True):
         item_id = f"item_{uuid4().hex}"
         item_record = {
             "item_id": item_id,
             "order_id": order_id,
-            "property_id": item.property_id,
-            "quantity": item.quantity,
-            "unit_price": item.unit_price,
-            "total_price": int(item.quantity * item.unit_price),
+            "property_id": priced.product_id,
+            "quantity": priced.quantity,
+            "unit_price": priced.unit_price,
+            "total_price": priced.total_price,
             "variation": item.variation or {},
             "metadata": item.metadata or {},
         }

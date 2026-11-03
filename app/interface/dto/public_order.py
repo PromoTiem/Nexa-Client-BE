@@ -10,7 +10,10 @@ class PublicOrderItemCreate(BaseModel):
 
     property_id: str = Field(min_length=1, description="Item or property identifier")
     quantity: int = Field(gt=0, description="Item quantity, must be greater than zero")
-    unit_price: int = Field(ge=0, description="Unit price in VND")
+    unit_price: int = Field(
+        ge=0,
+        description="Legacy client price; ignored because the server prices every item",
+    )
     variation: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
 
@@ -35,7 +38,11 @@ class PublicOrderCreateRequest(BaseModel):
         min_length=1, description="List of order items, non-empty"
     )
     total: int | None = Field(
-        default=None, description="Optional explicit total in VND"
+        default=None,
+        description=(
+            "Optional consistency check; the server computes the charge from its "
+            "catalogue and rejects a mismatch"
+        ),
     )
     notes: str | None = None
     metadata: dict[str, Any] | None = None

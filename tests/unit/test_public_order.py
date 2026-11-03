@@ -4,7 +4,12 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.config import MomoSettings, Settings, get_settings
+from app.config import (
+    EcommerceSettings,
+    MomoSettings,
+    Settings,
+    get_settings,
+)
 from app.infrastructure.momo.client import MomoGatewayClient, MomoGatewayError
 from app.infrastructure.momo.dto import MomoCreatePaymentResponse
 from app.infrastructure.pocketbase.client import PocketBaseClient
@@ -29,10 +34,31 @@ def configured_momo(**overrides: object) -> MomoSettings:
     return MomoSettings(**values)
 
 
+TEST_ECOMMERCE_PRICES: dict[str, int] = {
+    "prop_item_1": 50000,
+    "prop_item_2": 250000,
+    "prop_item_3": 100000,
+    "prop_item_cheap": 500,
+    "prop_item_valid": 10000,
+    "prop_item_expensive": 50000001,
+}
+
+
+def test_ecommerce(**overrides: object) -> EcommerceSettings:
+    values: dict[str, object] = {
+        "prices": dict(TEST_ECOMMERCE_PRICES),
+        "free_shipping_threshold": 0,
+        "shipping_fee": 0,
+    }
+    values.update(overrides)
+    return EcommerceSettings(**values)
+
+
 def create_test_app(
     mock_pb: AsyncMock,
     mock_momo: AsyncMock | None = None,
     momo: MomoSettings | None = None,
+    ecommerce: EcommerceSettings | None = None,
 ) -> FastAPI:
     app = FastAPI()
     register_exception_handlers(app)
@@ -44,6 +70,7 @@ def create_test_app(
     app.dependency_overrides[get_settings] = lambda: Settings(
         rate_limit_storage_uri="memory://",
         momo=momo or configured_momo(),
+        ecommerce=ecommerce or test_ecommerce(),
     )
     get_limiter("memory://").storage.reset()
     return app
@@ -630,14 +657,21 @@ async def test_momo_missing_pay_url_is_treated_as_failure(mock_pb: AsyncMock) ->
 
 @pytest.mark.asyncio
 async def test_order_keeps_shipping_fee_in_persisted_total(mock_pb: AsyncMock) -> None:
-    app = create_test_app(mock_pb)
+    app = create_test_app(
+        mock_pb,
+        ecommerce=EcommerceSettings(
+            prices={"p-ly-gom": 320000},
+            free_shipping_threshold=500000,
+            shipping_fee=30000,
+        ),
+    )
     payload = {
         "customer_name": "Shipping Customer",
         "payment_method": "cod",
         "total": 350000,
         "items": [
             {
-                "property_id": "prop_item_1",
+                "property_id": "p-ly-gom",
                 "quantity": 1,
                 "unit_price": 320000,
             }
@@ -663,6 +697,15 @@ async def test_order_keeps_shipping_fee_in_persisted_total(mock_pb: AsyncMock) -
     assert order_data["metadata"]["subtotal"] == 320000
     assert order_data["metadata"]["shipping_fee"] == 30000
 
+    item_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "order_items"
+    ]
+    assert len(item_calls) == 1
+    assert item_calls[0].args[1]["unit_price"] == 320000
+    assert item_calls[0].args[1]["total_price"] == 320000
+
     payment_calls = [
         call
         for call in mock_pb.create_record.call_args_list
@@ -673,17 +716,24 @@ async def test_order_keeps_shipping_fee_in_persisted_total(mock_pb: AsyncMock) -
 
 
 @pytest.mark.asyncio
-async def test_rejection_on_total_below_item_subtotal(mock_pb: AsyncMock) -> None:
-    app = create_test_app(mock_pb)
+async def test_tampered_total_is_rejected(mock_pb: AsyncMock) -> None:
+    app = create_test_app(
+        mock_pb,
+        ecommerce=EcommerceSettings(
+            prices={"p-ly-gom": 320000},
+            free_shipping_threshold=500000,
+            shipping_fee=30000,
+        ),
+    )
     payload = {
-        "customer_name": "Test User",
+        "customer_name": "Tampered Total",
         "payment_method": "cod",
-        "total": 5000,
+        "total": 1000,
         "items": [
             {
-                "property_id": "prop_item_1",
+                "property_id": "p-ly-gom",
                 "quantity": 1,
-                "unit_price": 10000,
+                "unit_price": 1000,
             }
         ],
     }
@@ -694,7 +744,119 @@ async def test_rejection_on_total_below_item_subtotal(mock_pb: AsyncMock) -> Non
         response = await client.post(f"/public/sites/{SITE_ID}/orders", json=payload)
 
     assert response.status_code == 422
-    assert "Order total cannot be less than the item subtotal" in response.text
+    assert "Order total does not match current prices" in response.text
+    mock_pb.create_record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tampered_unit_price_is_ignored(mock_pb: AsyncMock) -> None:
+    app = create_test_app(
+        mock_pb,
+        ecommerce=EcommerceSettings(
+            prices={"p-ly-gom": 320000},
+            free_shipping_threshold=500000,
+            shipping_fee=30000,
+        ),
+    )
+    payload = {
+        "customer_name": "Tampered Price",
+        "payment_method": "cod",
+        "total": 350000,
+        "items": [
+            {
+                "property_id": "p-ly-gom",
+                "quantity": 1,
+                "unit_price": 1000,
+            }
+        ],
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/public/sites/{SITE_ID}/orders", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["total"] == 350000
+
+    item_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "order_items"
+    ]
+    assert len(item_calls) == 1
+    assert item_calls[0].args[1]["unit_price"] == 320000
+    assert item_calls[0].args[1]["total_price"] == 320000
+    payment_calls = [
+        call
+        for call in mock_pb.create_record.call_args_list
+        if call.args[0] == "payments"
+    ]
+    assert len(payment_calls) == 1
+    assert payment_calls[0].args[1]["amount"] == 350000
+
+
+@pytest.mark.asyncio
+async def test_total_omitted_still_uses_server_price(mock_pb: AsyncMock) -> None:
+    app = create_test_app(
+        mock_pb,
+        ecommerce=EcommerceSettings(
+            prices={"p-ly-gom": 320000},
+            free_shipping_threshold=500000,
+            shipping_fee=30000,
+        ),
+    )
+    payload = {
+        "customer_name": "No Total",
+        "payment_method": "cod",
+        "items": [
+            {
+                "property_id": "p-ly-gom",
+                "quantity": 1,
+                "unit_price": 1000,
+            }
+        ],
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/public/sites/{SITE_ID}/orders", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["total"] == 350000
+
+
+@pytest.mark.asyncio
+async def test_unknown_product_is_rejected(mock_pb: AsyncMock) -> None:
+    app = create_test_app(
+        mock_pb,
+        ecommerce=EcommerceSettings(
+            prices={"p-ly-gom": 320000},
+            free_shipping_threshold=500000,
+            shipping_fee=30000,
+        ),
+    )
+    payload = {
+        "customer_name": "Unknown Product",
+        "payment_method": "cod",
+        "total": 350000,
+        "items": [
+            {
+                "property_id": "p-not-in-catalogue",
+                "quantity": 1,
+                "unit_price": 1000,
+            }
+        ],
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/public/sites/{SITE_ID}/orders", json=payload)
+
+    assert response.status_code == 422
+    assert "Unknown product" in response.text
     mock_pb.create_record.assert_not_awaited()
 
 
@@ -710,9 +872,9 @@ async def test_main_app_has_public_order_route_registered(
         "payment_method": "cod",
         "items": [
             {
-                "property_id": "prop_item_1",
+                "property_id": "p-ly-gom",
                 "quantity": 1,
-                "unit_price": 10000,
+                "unit_price": 320000,
             }
         ],
     }
