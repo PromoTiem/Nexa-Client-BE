@@ -80,6 +80,9 @@ def create_test_app(
 def mock_pb() -> AsyncMock:
     pb = AsyncMock(spec=PocketBaseClient)
     pb.create_record.return_value = {"id": "rec_test_123"}
+    # No product records: these tests price from the configured demo catalogue.
+    pb.list_records.return_value = {"items": [], "totalPages": 1}
+    pb._static_token = "static-token"
     return pb
 
 

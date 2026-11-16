@@ -668,7 +668,7 @@ async def test_public_booking_persists_only_published_and_trusted_fields():
             {
                 "name": "Customer",
                 "fields": [
-                    {"key": "phone", "value": "123", "type": "richtext"},
+                    {"key": "phone", "value": "0901234567", "type": "richtext"},
                     *SCHEDULE_VALUES,
                 ],
                 "metadata": {"service_id": "svc"},

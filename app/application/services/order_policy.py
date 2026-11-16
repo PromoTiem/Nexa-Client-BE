@@ -19,6 +19,28 @@ TRANSITIONS = {
 }
 
 
+def public_order_status(
+    order: dict[str, Any], latest_payment: dict[str, Any] | None
+) -> str:
+    """What a shopper polling for payment sees: paid, pending, failed or cancelled.
+
+    A cancelled order is final. Paid follows the MoMo IPN handler's own rule:
+    the order is paid, or its latest payment completed (the IPN writes the
+    payment before the order). A declined IPN fails the payment but leaves the
+    order pending, so a failed latest payment reads "failed" and the storefront
+    can stop polling.
+    """
+    order_status = order.get("status") or "pending"
+    payment_status = (latest_payment or {}).get("status")
+    if order_status == "cancelled":
+        return "cancelled"
+    if order_status in {"paid", "fulfilled"} or payment_status == "completed":
+        return "paid"
+    if payment_status == "failed":
+        return "failed"
+    return order_status
+
+
 def validate_transition(current: str, target: Any) -> None:
     if target not in TRANSITIONS:
         raise HTTPException(422, "Invalid order status")

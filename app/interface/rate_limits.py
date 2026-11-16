@@ -39,6 +39,15 @@ async def public_submission_limit(
     await _check(settings, "100/minute", "public-submission-site", site_id)
 
 
+async def public_order_status_limit(
+    request: Request, settings: Settings = Depends(get_settings)
+) -> None:
+    # The storefront polls every 3 s while MoMo confirms; reuse the per-IP
+    # public analytics quota rather than the 5/minute submission quota.
+    address = request.client.host if request.client else "unknown"
+    await _check(settings, "100/minute", "public-order-status-ip", address)
+
+
 async def public_analytics_limit(
     request: Request, settings: Settings = Depends(get_settings)
 ) -> None:

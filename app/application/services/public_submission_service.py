@@ -15,6 +15,10 @@ from app.infrastructure.logging import get_logger
 from app.infrastructure.operation_lock import operation_lock
 from app.infrastructure.pocketbase.client import PocketBaseClient
 from app.infrastructure.pocketbase.filters import sanitize_filter_value
+from app.infrastructure.validation.field_validator import (
+    is_vietnamese_phone,
+    validate_fields,
+)
 
 logger = get_logger("public_submission_service")
 
@@ -30,19 +34,57 @@ def _is_blank(value: Any) -> bool:
     return False
 
 
+PHONE_ERROR = "Invalid phone number: use 0xxxxxxxxx or +84xxxxxxxxx"
+PHONE_KEYS = ("customer_phone", "phone")
+
+
+def require_vietnamese_phone(value: Any) -> None:
+    """A phone is optional, but a given one must be a Vietnamese number."""
+    if _is_blank(value):
+        return
+    if not isinstance(value, str) or not is_vietnamese_phone(value):
+        raise HTTPException(status_code=422, detail=PHONE_ERROR)
+
+
+async def _require_accepting(
+    pb: PocketBaseClient, site_id: str, submission_type: str
+) -> None:
+    """The site owner opts in to each public submission type."""
+    site = await pb.find_one_by_filter(
+        "sites", f'site_id="{sanitize_filter_value(site_id)}"'
+    )
+    assert_site_active(site)
+    policy = (site.get("config") or {}).get("public_submissions") or {}
+    if policy.get("enabled") is not True or submission_type not in policy.get(
+        "types", []
+    ):
+        raise HTTPException(status_code=404, detail="Submissions unavailable")
+
+
+def _merge_values(
+    schema: list[dict[str, Any]], supplied: list[dict[str, Any]], kind: str
+) -> list[dict[str, Any]]:
+    """Copy submitted values onto the server's field schema.
+
+    Validation constraints come from the server, never the submitter.
+    """
+    values = {field["key"]: field.get("value") for field in supplied}
+    if len(values) != len(supplied) or set(values) - {field["key"] for field in schema}:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown or duplicate {kind} fields"
+        )
+    if len(json.dumps(values).encode()) > 16384:
+        raise HTTPException(
+            status_code=413, detail=f"{kind.capitalize()} fields too large"
+        )
+    return [{**field, "value": values.get(field["key"])} for field in schema]
+
+
 async def create_booking(
     pb: PocketBaseClient, site_id: str, data: dict[str, Any]
 ) -> dict[str, Any]:
     async with operation_lock(f"site:{site_id}"):
-        site = await pb.find_one_by_filter(
-            "sites", f'site_id="{sanitize_filter_value(site_id)}"'
-        )
-        assert_site_active(site)
-        policy = (site.get("config") or {}).get("public_submissions") or {}
-        if policy.get("enabled") is not True or "booking_submission" not in policy.get(
-            "types", []
-        ):
-            raise HTTPException(status_code=404, detail="Submissions unavailable")
+        await _require_accepting(pb, site_id, "booking_submission")
         service_id = data["metadata"]["service_id"]
         service = await pb.find_one_by_filter(
             "properties",
@@ -58,18 +100,8 @@ async def create_booking(
         )
         if not schema:
             raise HTTPException(status_code=404, detail="Booking unavailable")
-        supplied = data["fields"]
-        values = {field["key"]: field.get("value") for field in supplied}
-        if len(values) != len(supplied) or set(values) - {
-            field["key"] for field in schema
-        }:
-            raise HTTPException(
-                status_code=422, detail="Unknown or duplicate booking fields"
-            )
-        if len(json.dumps(values).encode()) > 16384:
-            raise HTTPException(status_code=413, detail="Booking fields too large")
-        # Validation constraints come from the published service, never the submitter.
-        fields = [{**field, "value": values.get(field["key"])} for field in schema]
+        fields = _merge_values(schema, data["fields"], "booking")
+        values = {field["key"]: field["value"] for field in fields}
         blank = [
             field["key"]
             for field in fields
@@ -80,6 +112,8 @@ async def create_booking(
                 status_code=400,
                 detail=f"Required booking fields missing: {', '.join(blank)}",
             )
+        for key in PHONE_KEYS:
+            require_vietnamese_phone(values.get(key))
         # Refuse what can never become a booking, before anything is stored: a 201
         # here used to leave the guest believing they had booked when no booking existed.
         submission_provider_id = (
@@ -146,3 +180,65 @@ async def create_booking(
                 },
             )
         return created
+
+
+ENQUIRY_FIELDS: list[dict[str, Any]] = [
+    {"key": "customer_name", "label": "Name", "type": "text", "required": True},
+    {"key": "customer_email", "label": "Email", "type": "email", "required": True},
+    {"key": "customer_phone", "label": "Phone", "type": "text"},
+    {"key": "message", "label": "Message", "type": "textarea"},
+]
+"""Server-owned enquiry schema: the submitter supplies values, never constraints."""
+
+
+async def create_enquiry(
+    pb: PocketBaseClient, site_id: str, data: dict[str, Any]
+) -> dict[str, Any]:
+    """Store a website enquiry (viewing request, free trial, contact).
+
+    Unlike a booking there is no service or capacity to check: the record is
+    the whole outcome, and the owner reads it from the properties listing.
+    """
+    await _require_accepting(pb, site_id, "enquiry_submission")
+    fields = _merge_values(ENQUIRY_FIELDS, data["fields"], "enquiry")
+    blank = [
+        field["key"]
+        for field in fields
+        if field.get("required") and _is_blank(field["value"])
+    ]
+    if blank:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Required enquiry fields missing: {', '.join(blank)}",
+        )
+    errors = validate_fields(fields)
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+    require_vietnamese_phone(
+        next(f["value"] for f in fields if f["key"] == "customer_phone")
+    )
+
+    metadata = {
+        key: value
+        for key, value in (data.get("metadata") or {}).items()
+        if value is not None
+    }
+    property_id = f"enquiry_{uuid.uuid4().hex}"
+    return await PropertyService().create_property(
+        pb=pb,
+        token=pb._static_token,
+        user_id="",
+        site_id=site_id,
+        data={
+            "property_id": property_id,
+            "type": "enquiry_submission",
+            "name": data["name"],
+            # Random, so the slug check cannot collide and no site lock is needed.
+            "slug": property_id,
+            # Published means submitted, never trusted from the caller.
+            "status": "published",
+            "fields": fields,
+            "groups": [],
+            "metadata": {**metadata, "source": "website"},
+        },
+    )

@@ -6,17 +6,27 @@ from app.application.services.ecommerce_pricing import (
     OrderTotalMismatchError,
     UnknownProductError,
     price_order,
+    site_catalogue_prices,
+)
+from app.application.services.order_policy import public_order_status
+from app.application.services.public_submission_service import (
+    require_vietnamese_phone,
 )
 from app.config import Settings, get_settings
 from app.infrastructure.logging import get_logger
 from app.infrastructure.momo.client import MomoGatewayClient, MomoGatewayError
 from app.infrastructure.pocketbase.client import PocketBaseClient
+from app.infrastructure.pocketbase.filters import sanitize_filter_value
 from app.interface.dependencies import get_static_pocketbase_client
 from app.interface.dto.public_order import (
     PublicOrderCreateRequest,
     PublicOrderResponse,
+    PublicOrderStatusResponse,
 )
-from app.interface.rate_limits import public_submission_limit
+from app.interface.rate_limits import (
+    public_order_status_limit,
+    public_submission_limit,
+)
 from app.interface.route_helpers import validate_id
 
 logger = get_logger("public_orders")
@@ -129,6 +139,8 @@ async def create_public_order(
                 detail="Item unit price cannot be negative",
             )
 
+    require_vietnamese_phone(body.customer_phone)
+
     if body.total is not None:
         if body.total < 1_000:
             raise HTTPException(
@@ -141,10 +153,16 @@ async def create_public_order(
                 detail="Order amount must not exceed 50,000,000 VND",
             )
 
+    prices = await site_catalogue_prices(
+        pb,
+        site_id,
+        (item.property_id for item in body.items),
+        fallback=settings.ecommerce.prices,
+    )
     try:
         pricing = price_order(
             ((item.property_id, item.quantity) for item in body.items),
-            prices=settings.ecommerce.prices,
+            prices=prices,
             free_shipping_threshold=settings.ecommerce.free_shipping_threshold,
             shipping_fee=settings.ecommerce.shipping_fee,
             requested_total=body.total,
@@ -357,4 +375,41 @@ async def create_public_order(
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
         customer_email=str(body.customer_email) if body.customer_email else None,
+    )
+
+
+@public_order_router.get(
+    "/sites/{site_id}/orders/{order_id}",
+    dependencies=[Depends(public_order_status_limit)],
+    response_model=PublicOrderStatusResponse,
+)
+async def get_public_order_status(
+    site_id: str,
+    order_id: str,
+    pb: PocketBaseClient = Depends(get_static_pocketbase_client),
+) -> PublicOrderStatusResponse:
+    """Payment progress for the storefront poll. Returns no customer data."""
+    validate_id(site_id, "site_id")
+    validate_id(order_id, "order_id")
+    order_filter = f'order_id="{sanitize_filter_value(order_id)}"'
+    try:
+        order = await pb.find_one_by_filter(
+            "orders",
+            f'{order_filter} && site_id="{sanitize_filter_value(site_id)}" && deleted_at=""',
+        )
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            raise HTTPException(status_code=404, detail="Order not found") from exc
+        raise
+    # Same read as the MoMo IPN handler: the newest payment for the order.
+    payments = await pb.list_records(
+        "payments", filter=order_filter, sort="-created_at", page=1, per_page=1
+    )
+    latest = next(iter(payments.get("items") or []), None)
+    return PublicOrderStatusResponse(
+        order_id=order["order_id"],
+        status=public_order_status(order, latest),
+        payment_status=latest.get("status") if latest else None,
+        total=order.get("total", 0),
+        currency=order.get("currency"),
     )
