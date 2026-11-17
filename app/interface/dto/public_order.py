@@ -64,3 +64,13 @@ class PublicOrderResponse(BaseModel):
     customer_phone: str | None = None
     customer_email: str | None = None
     created_at: str | None = None
+
+
+class PublicOrderStatusResponse(BaseModel):
+    """Payment progress for the storefront poll; never carries customer data."""
+
+    order_id: str
+    status: str
+    payment_status: str | None = None
+    total: int | float
+    currency: str | None = None

@@ -1,6 +1,13 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    field_validator,
+)
 
 from app.interface.dto.common import PaginatedResponse
 
@@ -151,3 +158,36 @@ class PublicBookingRequest(BaseModel):
     fields: list[PropertyField] = Field(max_length=30)
     metadata: PublicBookingMetadata
     provider_id: str | None = None
+
+
+class PublicEnquiryMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["website"] = "website"
+    topic: Literal["viewing", "trial", "contact"]
+    reference_id: str | None = Field(
+        default=None, min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$"
+    )
+    reference_title: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class PublicEnquiryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["enquiry_submission"]
+    name: str = Field(min_length=1, max_length=200)
+    # Published means submitted; the server sets it regardless.
+    status: Literal["published"] = "published"
+    fields: list[PropertyField] = Field(max_length=30)
+    metadata: PublicEnquiryMetadata
+
+
+def _submission_type(value: Any) -> str:
+    # Booking clients predate the enquiry type and may omit ``type``.
+    raw = value.get("type") if isinstance(value, dict) else getattr(value, "type", None)
+    return raw or "booking_submission"
+
+
+PublicSubmissionRequest = Annotated[
+    Annotated[PublicBookingRequest, Tag("booking_submission")]
+    | Annotated[PublicEnquiryRequest, Tag("enquiry_submission")],
+    Discriminator(_submission_type),
+]

@@ -29,6 +29,13 @@ FIELD_TYPES = frozenset(
 _URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_VN_PHONE_RE = re.compile(r"(\+84|0)[0-9]{9}")
+_PHONE_SEPARATORS_RE = re.compile(r"[\s.\-]")
+
+
+def is_vietnamese_phone(value: str) -> bool:
+    """``0xxxxxxxxx`` or ``+84xxxxxxxxx``; spaces, dots and dashes are ignored."""
+    return bool(_VN_PHONE_RE.fullmatch(_PHONE_SEPARATORS_RE.sub("", value)))
 
 
 def _validate_text_value(field: dict, errors: list[str]) -> None:

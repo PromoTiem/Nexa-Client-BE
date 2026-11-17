@@ -8,7 +8,10 @@ from app.application.services.public_site_events import (
     subscribe_newsletter,
     track_public_event,
 )
-from app.application.services.public_submission_service import create_booking
+from app.application.services.public_submission_service import (
+    create_booking,
+    create_enquiry,
+)
 from app.application.services.record_mutation import locked_record
 from app.infrastructure.analytics.collector import AnalyticsCollector
 from app.infrastructure.logging import get_logger
@@ -26,7 +29,8 @@ from app.interface.dto.property import (
     PropertyListResponse,
     PropertyResponse,
     PropertyUpdateRequest,
-    PublicBookingRequest,
+    PublicEnquiryRequest,
+    PublicSubmissionRequest,
 )
 from app.interface.dto.public_events import (
     PublicAnalyticsEvent,
@@ -297,11 +301,14 @@ async def delete_property(
 )
 async def create_public_property(
     site_id: str,
-    body: PublicBookingRequest,
+    body: PublicSubmissionRequest,
     pb: PocketBaseClient = Depends(get_static_pocketbase_client),
 ) -> PropertyResponse:
     validate_id(site_id, "site_id")
-    record = await create_booking(pb, site_id, body.model_dump())
+    create = (
+        create_enquiry if isinstance(body, PublicEnquiryRequest) else create_booking
+    )
+    record = await create(pb, site_id, body.model_dump())
     return _record_to_response(record)
 
 

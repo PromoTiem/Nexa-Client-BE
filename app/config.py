@@ -71,9 +71,10 @@ class MomoSettings(BaseSettings):
 
 
 DEMO_ECOMMERCE_PRICES: dict[str, int] = {
-    # Mirrors Nexa-FE packages/cms/.../ecommerce/data/ecommerceCatalogue.ts.
-    # Temporary until the live product/catalogue API exists; the server is the
-    # authority for what a shopper pays.
+    # Mirrors Nexa-FE packages/cms/.../ecommerce/data/ecommerceCatalogue.ts, used
+    # by the admin demo storefront. Public orders are priced from the site's own
+    # published product records; these prices apply only to a site that has no
+    # product records at all.
     "p-ly-gom": 320_000,
     "p-den-may": 680_000,
     "p-khay-go": 250_000,

@@ -70,8 +70,10 @@ momo:
 
 # Public ecommerce checkout pricing.
 # The server is the authority for the amount charged; client prices are ignored.
-# These values mirror Nexa-FE's ecommerceCatalogue.ts until the live catalogue
-# API exists. Override here or via ECOMMERCE__PRICES / ECOMMERCE__SHIPPING_FEE.
+# Orders are priced from the site's own published product records. `prices`
+# mirrors Nexa-FE's ecommerceCatalogue.ts (admin demo storefront) and applies
+# only to a site with no product records at all.
+# Override here or via ECOMMERCE__PRICES / ECOMMERCE__SHIPPING_FEE.
 ecommerce:
   prices:
     p-ly-gom: 320000
